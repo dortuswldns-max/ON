@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rendertheme xmlns="http://mapsforge.org/renderTheme" version="4" map-background="#dedede">
+    <rule e="way" k="highway" v="*">
+        <line stroke="#ff6600" stroke-width="2dp"/>
+    </rule>
+    <rule e="way" k="natural" v="water">
+        <area fill="#aad3df"/>
+    </rule>
+    <rule e="way" k="building" v="*">
+        <area fill="#d9d0c9"/>
+    </rule>
+</rendertheme>

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rendertheme xmlns="http://mapsforge.org/renderTheme" version="4" map-background="#fffdf8f0">
+    <rule e="way" k="highway" v="~">
+        <line stroke="#999999" stroke-width="1dp"/>
+    </rule>
+    <rule e="way" k="highway" v="motorway|trunk|primary">
+        <line stroke="#ff9900" stroke-width="3dp"/>
+    </rule>
+    <rule e="way" k="highway" v="secondary|tertiary">
+        <line stroke="#ffcc00" stroke-width="2dp"/>
+    </rule>
+    <rule e="way" k="highway" v="residential|unclassified">
+        <line stroke="#ffffff" stroke-width="1.5dp"/>
+    </rule>
+    <rule e="way" k="natural" v="water">
+        <area fill="#aad3df"/>
+    </rule>
+    <rule e="way" k="landuse" v="forest|wood">
+        <area fill="#add19e"/>
+    </rule>
+</rendertheme>

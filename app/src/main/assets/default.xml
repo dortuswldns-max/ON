@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rendertheme version="4" map-background="#F0EBE3"
+    xmlns="http://mapsforge.org/renderTheme">
+
+    <!-- 수계 -->
+    <rule e="way" k="natural" v="water">
+        <area fill="#76C7F2"/>
+        <line stroke="#5BB8E8" stroke-width="1"/>
+    </rule>
+    <rule e="way" k="waterway" v="river|canal">
+        <line stroke="#76C7F2" stroke-width="2"/>
+    </rule>
+    <rule e="way" k="waterway" v="stream|drain">
+        <line stroke="#76C7F2" stroke-width="1"/>
+    </rule>
+
+    <!-- 녹지 -->
+    <rule e="way" k="landuse" v="forest|wood">
+        <area fill="#4CAF50"/>
+    </rule>
+    <rule e="way" k="landuse" v="grass|meadow|village_green">
+        <area fill="#A8E6A3"/>
+    </rule>
+    <rule e="way" k="leisure" v="park|garden|nature_reserve">
+        <area fill="#A8E6A3"/>
+    </rule>
+    <rule e="way" k="natural" v="wood|grassland|scrub">
+        <area fill="#4CAF50"/>
+    </rule>
+
+    <!-- 건물 -->
+    <rule e="way" k="building" v="*">
+        <area fill="#E0D6CE" stroke="#C8BDB5" stroke-width="1"/>
+    </rule>
+
+    <!-- 철도 -->
+    <rule e="way" k="railway" v="rail|subway">
+        <line stroke="#999999" stroke-width="1"/>
+    </rule>
+
+    <!-- 도로 굵기 기준: GPX=6, 자전거=4, 일반=2, 주요=3, 고속=4 -->
+    <rule e="way" k="highway" v="motorway|motorway_link">
+        <line stroke="#444444" stroke-width="3"/>
+    </rule>
+    <rule e="way" k="highway" v="trunk|trunk_link|primary|primary_link">
+        <line stroke="#555555" stroke-width="2"/>
+    </rule>
+    <rule e="way" k="highway" v="secondary|secondary_link|tertiary|tertiary_link">
+        <line stroke="#BBBBBB" stroke-width="2"/>
+    </rule>
+    <rule e="way" k="highway" v="residential|unclassified|living_street|service">
+        <line stroke="#CCCCCC" stroke-width="1"/>
+    </rule>
+
+    <!-- 자전거도로 (GPX 기준 약 2배, 흰 외곽선 구조) -->
+    <rule e="way" k="highway" v="cycleway">
+        <line stroke="#FFFFFF" stroke-width="5"/>
+        <line stroke="#2F80ED" stroke-width="3"/>
+    </rule>
+    <rule e="way" k="cycleway" v="track">
+        <line stroke="#FFFFFF" stroke-width="5"/>
+        <line stroke="#2F80ED" stroke-width="3"/>
+    </rule>
+    <rule e="way" k="cycleway" v="lane">
+        <line stroke="#FFFFFF" stroke-width="3"/>
+        <line stroke="#56CCF2" stroke-width="2"/>
+    </rule>
+    <rule e="way" k="bicycle" v="designated">
+        <line stroke="#FFFFFF" stroke-width="5"/>
+        <line stroke="#2F80ED" stroke-width="3"/>
+    </rule>
+    <rule e="way" k="bicycle" v="yes">
+        <line stroke="#FFFFFF" stroke-width="3"/>
+        <line stroke="#56CCF2" stroke-width="2"/>
+    </rule>
+    <rule e="way" k="highway" v="path|footway|pedestrian">
+        <line stroke="#DDDDDD" stroke-width="1"/>
+    </rule>
+
+    <!-- 지명 -->
+    <rule e="node" k="place" v="city">
+        <caption k="name" font-size="21" fill="#222222" stroke="#FFFFFF" stroke-width="3"/>
+    </rule>
+    <rule e="node" k="place" v="town|suburb">
+        <caption k="name" font-size="16" fill="#333333" stroke="#FFFFFF" stroke-width="2"/>
+    </rule>
+    <rule e="node" k="place" v="village|hamlet|neighbourhood">
+        <caption k="name" font-size="13" fill="#555555" stroke="#FFFFFF" stroke-width="2"/>
+    </rule>
+
+    <!-- 공원명 -->
+    <rule e="way" k="leisure" v="park">
+        <caption k="name" font-size="15" fill="#2E7D32" stroke="#FFFFFF" stroke-width="2"/>
+    </rule>
+    <rule e="node" k="leisure" v="park">
+        <caption k="name" font-size="15" fill="#2E7D32" stroke="#FFFFFF" stroke-width="2"/>
+    </rule>
+
+    <!-- 교량명 -->
+    <rule e="way" k="bridge" v="yes">
+        <caption k="name" font-size="15" fill="#1A237E" stroke="#FFFFFF" stroke-width="2"/>
+    </rule>
+    <rule e="way" k="man_made" v="bridge">
+        <caption k="name" font-size="15" fill="#1A237E" stroke="#FFFFFF" stroke-width="2"/>
+    </rule>
+
+    <!-- 화장실 -->
+    <rule e="node" k="amenity" v="toilets">
+        <caption k="name" font-size="13" fill="#6A1B9A" stroke="#FFFFFF" stroke-width="2"/>
+    </rule>
+
+    <!-- 카페 -->
+    <rule e="node" k="amenity" v="cafe">
+        <caption k="name" font-size="12" fill="#795548" stroke="#FFFFFF" stroke-width="2"/>
+    </rule>
+
+    <!-- 자전거 시설 -->
+    <rule e="node" k="amenity" v="bicycle_parking|bicycle_rental">
+        <caption k="name" font-size="13" fill="#0D47A1" stroke="#FFFFFF" stroke-width="2"/>
+    </rule>
+
+    <!-- 병원/약국 -->
+    <rule e="node" k="amenity" v="hospital|pharmacy">
+        <caption k="name" font-size="13" fill="#C62828" stroke="#FFFFFF" stroke-width="2"/>
+    </rule>
+
+    <!-- 관광지 -->
+    <rule e="node" k="tourism" v="attraction|viewpoint|museum">
+        <caption k="name" font-size="13" fill="#F57F17" stroke="#FFFFFF" stroke-width="2"/>
+    </rule>
+
+</rendertheme>
