@@ -2,7 +2,7 @@ package com.example.oppanavi
 
 import android.content.ClipData
 import android.content.ClipboardManager
-import android.content.Intent
+
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -12,8 +12,7 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Location
-import android.location.LocationListener
-import android.location.LocationManager
+
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -67,16 +66,16 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var locationMarker: Marker? = null
 
 
-    private lateinit var locationManager: LocationManager
     private lateinit var sensorManager: SensorManager
 
     private lateinit var gpxManager: GpxManager
     private lateinit var rideManager: RideManager
-    private var followMode = true
+    private lateinit var appLocationManager: AppLocationManager
+    private lateinit var mapManager: MapManager
+
     private var lastLatLong: LatLong? = null
     private var currentBearing = 0f
     private var smoothedBearing = 0f
-
     private var currentSpeedKmh = 0
 
 
@@ -90,64 +89,53 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
     }
 
-      private val locationListener = object : LocationListener {
-        override fun onLocationChanged(location: Location) {
-            val latLong = LatLong(location.latitude, location.longitude)
-            lastLatLong = latLong
+    private fun handleLocationUpdate(location: android.location.Location) {
+        val latLong = LatLong(location.latitude, location.longitude)
+        lastLatLong = latLong
 
-            if (location.hasBearing()) currentBearing = location.bearing
+        if (location.hasBearing()) currentBearing = location.bearing
 
-            drawMyLocation(latLong)
-            if (followMode) mapView.setCenter(latLong)
+        mapManager.drawMyLocation(latLong, currentBearing)
+        if (mapManager.isFollowMode) mapView.setCenter(latLong)
 
-            currentSpeedKmh = if (location.hasSpeed()) {
-                (location.speed * 3.6f).roundToInt()
-            } else 0
-            tvSpeed.text = currentSpeedKmh.toString()
+        currentSpeedKmh = if (location.hasSpeed()) {
+            (location.speed * 3.6f).roundToInt()
+        } else 0
+        tvSpeed.text = currentSpeedKmh.toString()
 
-            when {
-                location.accuracy <= 10f -> {
-                    tvGpsStatus.text = "GPS ●"
-                    tvGpsStatus.setTextColor(android.graphics.Color.parseColor("#4CAF50"))
-                }
-                location.accuracy <= 30f -> {
-                    tvGpsStatus.text = "GPS ◐"
-                    tvGpsStatus.setTextColor(android.graphics.Color.parseColor("#FF9800"))
-                }
-                else -> {
-                    tvGpsStatus.text = "GPS ○"
-                    tvGpsStatus.setTextColor(android.graphics.Color.parseColor("#F44336"))
-                }
+        when {
+            location.accuracy <= 10f -> {
+                tvGpsStatus.text = "GPS ●"
+                tvGpsStatus.setTextColor(android.graphics.Color.parseColor("#4CAF50"))
             }
-
-            val autoResumed = rideManager.onLocationUpdate(latLong, currentSpeedKmh)
-            if (rideManager.isRideStarted && !rideManager.isPaused) {
-                tvTotalDist.text = "%.1fkm".format(rideManager.getDistanceKm())
-                tvAvgSpeed.text = "%.1favg".format(rideManager.getAvgSpeed())
+            location.accuracy <= 30f -> {
+                tvGpsStatus.text = "GPS ◐"
+                tvGpsStatus.setTextColor(android.graphics.Color.parseColor("#FF9800"))
             }
-            if (autoResumed) {
-                btnPause.setImageResource(android.R.drawable.ic_media_pause)
-                tvPauseStatus.text = ""
-            }
-
-            if (gpxManager.hasRoute) {
-                val info = gpxManager.updateProgress(latLong)
-                tvGpxProgress.text = "${info.progressPct}%"
-                tvGpxRemain.text = "남은 ${info.remainKm}km"
-                tvOffRoute.visibility = if (info.isOffRoute) View.VISIBLE else View.GONE
+            else -> {
+                tvGpsStatus.text = "GPS ○"
+                tvGpsStatus.setTextColor(android.graphics.Color.parseColor("#F44336"))
             }
         }
 
-        override fun onProviderDisabled(provider: String) {
-            tvGpsStatus.text = "GPS ○"
-            tvGpsStatus.setTextColor(android.graphics.Color.parseColor("#F44336"))
-            Toast.makeText(this@MainActivity, "GPS가 꺼져있습니다.", Toast.LENGTH_LONG).show()
+        val autoResumed = rideManager.onLocationUpdate(latLong, currentSpeedKmh)
+        if (rideManager.isRideStarted && !rideManager.isPaused) {
+            tvTotalDist.text = "%.1fkm".format(rideManager.getDistanceKm())
+            tvAvgSpeed.text = "%.1favg".format(rideManager.getAvgSpeed())
+        }
+        if (autoResumed) {
+            btnPause.setImageResource(android.R.drawable.ic_media_pause)
+            tvPauseStatus.text = ""
         }
 
-        override fun onProviderEnabled(provider: String) {
-            Toast.makeText(this@MainActivity, "GPS 연결됨", Toast.LENGTH_SHORT).show()
+        if (gpxManager.hasRoute) {
+            val info = gpxManager.updateProgress(latLong)
+            tvGpxProgress.text = "${info.progressPct}%"
+            tvGpxRemain.text = "남은 ${info.remainKm}km"
+            tvOffRoute.visibility = if (info.isOffRoute) View.VISIBLE else View.GONE
         }
     }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -156,13 +144,27 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
-        locationManager = getSystemService(LOCATION_SERVICE) as LocationManager
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
 
         bindViews()
-        setupMap()
+
+        mapManager = MapManager(this, mapView)
+        mapManager.setupMap { updateFollowModeUI() }
+
         gpxManager = GpxManager(this, mapView)
         rideManager = RideManager(this)
+        appLocationManager = AppLocationManager(
+            context = this,
+            onLocationUpdate = { location -> handleLocationUpdate(location) },
+            onProviderDisabled = {
+                tvGpsStatus.text = "GPS ○"
+                tvGpsStatus.setTextColor(android.graphics.Color.parseColor("#F44336"))
+                Toast.makeText(this, "GPS가 꺼져있습니다.", Toast.LENGTH_LONG).show()
+            },
+            onProviderEnabled = {
+                Toast.makeText(this, "GPS 연결됨", Toast.LENGTH_SHORT).show()
+            }
+        )
 
         setupButtons()
         timerHandler.post(timerRunnable)
@@ -171,7 +173,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 this, android.Manifest.permission.ACCESS_FINE_LOCATION
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            startLocationUpdates()
+            appLocationManager.startUpdates()
+            moveToCurrentLocation()
         } else {
             androidx.core.app.ActivityCompat.requestPermissions(
                 this,
@@ -204,37 +207,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         btnClearGpx = findViewById(R.id.btnClearGpx)
     }
 
-    private fun setupMap() {
-        mapView.isClickable = true
-        mapView.mapScaleBar.isVisible = true
 
-        mapView.setOnTouchListener { _, _ ->
-            if (followMode) {
-                followMode = false
-                updateFollowModeUI()
-            }
-            false
-        }
-
-        val mapFile = copyMapFromAssets("south_korea.map")
-        val tileCache = AndroidUtil.createTileCache(
-            this, "mapcache",
-            mapView.model.displayModel.tileSize,
-            1f,
-            mapView.model.frameBufferModel.overdrawFactor
-        )
-        val mapDataStore: MapDataStore = MapFile(mapFile)
-        val tileRendererLayer = TileRendererLayer(
-            tileCache, mapDataStore,
-            mapView.model.mapViewPosition,
-            AndroidGraphicFactory.INSTANCE
-        )
-        tileRendererLayer.setXmlRenderTheme(
-            StreamRenderTheme("", assets.open("default.xml"))
-        )
-        mapView.layerManager.layers.add(tileRendererLayer)
-        mapView.setZoomLevel(15.toByte())
-    }
 
     private fun setupButtons() {
         updateFollowModeUI()
@@ -242,7 +215,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         btnStartRide.setOnClickListener { startRide() }
 
         btnMyLocation.setOnClickListener {
-            followMode = true
+            mapManager.enableFollow()
             updateFollowModeUI()
             lastLatLong?.let {
                 mapView.setCenter(it)
@@ -402,25 +375,25 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         mapView.layerManager.layers.add(locationMarker!!)
     }
 
-    override fun onResume() {
-        super.onResume()
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
-            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
-        }
-        if (androidx.core.app.ActivityCompat.checkSelfPermission(
-                this, android.Manifest.permission.ACCESS_FINE_LOCATION
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            startLocationUpdates()
-        }
+override fun onResume() {
+    super.onResume()
+    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
+        sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
     }
+    if (androidx.core.app.ActivityCompat.checkSelfPermission(
+            this, android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    ) {
+        appLocationManager.startUpdates()
+    }
+}
 
-    override fun onPause() {
-        super.onPause()
-        sensorManager.unregisterListener(this)
-        locationManager.removeUpdates(locationListener)
-    }
+override fun onPause() {
+    super.onPause()
+    sensorManager.unregisterListener(this)
+    appLocationManager.stopUpdates()
+}
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
@@ -439,15 +412,15 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                         if (diff > 180) -1 else if (rawBearing > smoothedBearing) 1 else -1
                 smoothedBearing = (smoothedBearing + 360) % 360
                 currentBearing = smoothedBearing
-                lastLatLong?.let { drawMyLocation(it) }
+                lastLatLong?.let { mapManager.drawMyLocation(it, currentBearing) }
             }
         }
     }
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
-    private fun updateFollowModeUI() {
-        if (followMode) {
+private fun updateFollowModeUI() {
+    if (mapManager.isFollowMode) {
             btnMyLocation.backgroundTintList =
                 android.content.res.ColorStateList.valueOf(
                     android.graphics.Color.parseColor("#2F80ED")
@@ -464,38 +437,15 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
     }
 
-    private fun startLocationUpdates() {
-        try {
-            if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    LocationManager.GPS_PROVIDER, 1000L, 2f, locationListener
-                )
-            }
-            if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                locationManager.requestLocationUpdates(
-                    LocationManager.NETWORK_PROVIDER, 2000L, 5f, locationListener
-                )
-            }
-            moveToCurrentLocation()
-        } catch (e: SecurityException) {
+    private fun moveToCurrentLocation() {
+        val latLong = appLocationManager.getLastKnownLocation()
+        if (latLong != null) {
+            lastLatLong = latLong
+            mapView.setCenter(latLong)
+            mapManager.drawMyLocation(latLong, currentBearing)
+        } else {
             mapView.setCenter(LatLong(37.5665, 126.9780))
         }
-    }
-
-    private fun moveToCurrentLocation() {
-        try {
-            val last = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-                ?: locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER)
-            if (last != null) {
-                val latLong = LatLong(last.latitude, last.longitude)
-                lastLatLong = latLong
-                mapView.setCenter(latLong)
-                drawMyLocation(latLong)
-            } else {
-                mapView.setCenter(LatLong(37.5665, 126.9780))
-            }
-        } catch (e: SecurityException) { }
     }
 
     override fun onRequestPermissionsResult(
@@ -506,7 +456,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             grantResults.isNotEmpty() &&
             grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
-            startLocationUpdates()
+            appLocationManager.startUpdates()
+            moveToCurrentLocation()
         }
     }
 
