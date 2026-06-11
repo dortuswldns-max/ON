@@ -43,7 +43,6 @@ import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity(), SensorEventListener {
 
-    private val USER_WEIGHT_KG = 67.0
 
     private lateinit var mapView: MapView
     private lateinit var tvSpeed: TextView
@@ -72,26 +71,21 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var sensorManager: SensorManager
 
     private lateinit var gpxManager: GpxManager
-
+    private lateinit var rideManager: RideManager
     private var followMode = true
     private var lastLatLong: LatLong? = null
     private var currentBearing = 0f
     private var smoothedBearing = 0f
-    private var isRideStarted = false
 
-    private var isPaused = false
-    private var rideStartTime = 0L
-    private var pausedTime = 0L
-    private var pauseStartTime = 0L
-    private var totalDistanceM = 0.0
-    private var lastRecordedLatLong: LatLong? = null
     private var currentSpeedKmh = 0
-    private var highSpeedCount = 0
+
 
     private val timerHandler = Handler(Looper.getMainLooper())
     private val timerRunnable = object : Runnable {
         override fun run() {
-            if (isRideStarted && !isPaused) updateRideTime()
+            if (rideManager.isRideStarted && !rideManager.isPaused) {
+                tvRideTime.text = rideManager.getRideTimeStr()
+            }
             timerHandler.postDelayed(this, 1000)
         }
     }
@@ -126,29 +120,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 }
             }
 
-            if (isRideStarted && !isPaused) {
-                lastRecordedLatLong?.let { prev ->
-                    val R = 6371000.0
-                    val lat1 = Math.toRadians(prev.latitude)
-                    val lat2 = Math.toRadians(latLong.latitude)
-                    val dLat = Math.toRadians(latLong.latitude - prev.latitude)
-                    val dLon = Math.toRadians(latLong.longitude - prev.longitude)
-                    val a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                            Math.cos(lat1) * Math.cos(lat2) *
-                            Math.sin(dLon/2) * Math.sin(dLon/2)
-                    val dist = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a))
-                    if (dist < 50) totalDistanceM += dist
-                }
-                lastRecordedLatLong = latLong
-                tvTotalDist.text = "%.1fkm".format(totalDistanceM / 1000.0)
-                updateAvgSpeed()
+            val autoResumed = rideManager.onLocationUpdate(latLong, currentSpeedKmh)
+            if (rideManager.isRideStarted && !rideManager.isPaused) {
+                tvTotalDist.text = "%.1fkm".format(rideManager.getDistanceKm())
+                tvAvgSpeed.text = "%.1favg".format(rideManager.getAvgSpeed())
             }
-
-            if (isRideStarted && isPaused && currentSpeedKmh > 6) {
-                highSpeedCount++
-                if (highSpeedCount >= 3) resumeRide()
-            } else if (currentSpeedKmh <= 6) {
-                highSpeedCount = 0
+            if (autoResumed) {
+                btnPause.setImageResource(android.R.drawable.ic_media_pause)
+                tvPauseStatus.text = ""
             }
 
             if (gpxManager.hasRoute) {
@@ -183,6 +162,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         bindViews()
         setupMap()
         gpxManager = GpxManager(this, mapView)
+        rideManager = RideManager(this)
+
         setupButtons()
         timerHandler.post(timerRunnable)
 
@@ -274,48 +255,40 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
 
         btnPause.setOnClickListener {
-            if (isPaused) resumeRide() else pauseRide()
+            if (rideManager.isPaused) resumeRide() else pauseRide()
         }
 
-        btnFinish.setOnClickListener { showFinishDialog() }
+        btnFinish.setOnClickListener { rideManager.showFinishDialog() }
 
         btnClearGpx.setOnClickListener { clearGpxRoute() }
     }
 
     private fun startRide() {
-        isRideStarted = true
-        rideStartTime = System.currentTimeMillis()
-        pausedTime = 0L
-        totalDistanceM = 0.0
-        lastRecordedLatLong = null
+        rideManager.startRide()
         tvTotalDist.text = "0.0km"
         tvRideTime.text = "00:00"
         tvAvgSpeed.text = "0.0avg"
-
         layoutStartOverlay.visibility = View.GONE
         btnMyLocation.visibility = View.VISIBLE
         btnLoadGpx.visibility = View.VISIBLE
         btnPause.visibility = View.VISIBLE
         btnFinish.visibility = View.VISIBLE
-
         Toast.makeText(this, "주행 시작! 🚴", Toast.LENGTH_SHORT).show()
     }
 
     private fun pauseRide() {
-        isPaused = true
-        pauseStartTime = System.currentTimeMillis()
-        highSpeedCount = 0
+        rideManager.pause()
         tvPauseStatus.text = "⏸ 일시정지"
         btnPause.setImageResource(android.R.drawable.ic_media_play)
     }
 
     private fun resumeRide() {
-        isPaused = false
-        pausedTime += System.currentTimeMillis() - pauseStartTime
-        highSpeedCount = 0
+        rideManager.resume()
         tvPauseStatus.text = ""
         btnPause.setImageResource(android.R.drawable.ic_media_pause)
     }
+
+
 
     // GPX 레이어 3개 전부 완전 제거
     private fun clearGpxRoute() {
@@ -331,54 +304,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         Toast.makeText(this, "경로 취소됨", Toast.LENGTH_SHORT).show()
     }
 
-    private fun updateRideTime() {
-        val elapsed = System.currentTimeMillis() - rideStartTime - pausedTime
-        val seconds = (elapsed / 1000).toInt()
-        val minutes = seconds / 60
-        val hours = minutes / 60
-        tvRideTime.text = if (hours > 0) {
-            "%d:%02d:%02d".format(hours, minutes % 60, seconds % 60)
-        } else {
-            "%02d:%02d".format(minutes, seconds % 60)
-        }
-    }
 
-    private fun updateAvgSpeed() {
-        val elapsed = System.currentTimeMillis() - rideStartTime - pausedTime
-        if (elapsed > 0 && totalDistanceM > 0) {
-            val avg = (totalDistanceM / 1000.0) / (elapsed / 3600000.0)
-            tvAvgSpeed.text = "%.1favg".format(avg)
-        }
-    }
-
-    private fun showFinishDialog() {
-        val elapsed = System.currentTimeMillis() - rideStartTime - pausedTime
-        val seconds = (elapsed / 1000).toInt()
-        val minutes = seconds / 60
-        val hours = minutes / 60
-        val timeStr = if (hours > 0) {
-            "%d:%02d:%02d".format(hours, minutes % 60, seconds % 60)
-        } else {
-            "%02d:%02d".format(minutes, seconds % 60)
-        }
-
-        val distKm = totalDistanceM / 1000.0
-        val avgSpeed = if (elapsed > 0) distKm / (elapsed / 3600000.0) else 0.0
-        val kcal = (distKm * USER_WEIGHT_KG * 0.7).roundToInt()
-
-        val summary = "거리: ${"%.1f".format(distKm)}km  시간: $timeStr  평균속도: ${"%.1f".format(avgSpeed)}km/h  칼로리: ${kcal}kcal"
-
-        AlertDialog.Builder(this)
-            .setTitle("🚴 주행 종료")
-            .setMessage(summary)
-            .setPositiveButton("클립보드 복사") { _, _ ->
-                val clipboard = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("ride_summary", summary))
-                Toast.makeText(this, "복사 완료!", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("계속 라이딩") { dialog, _ -> dialog.dismiss() }
-            .show()
-    }
 
     private val gpxLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.GetContent()
