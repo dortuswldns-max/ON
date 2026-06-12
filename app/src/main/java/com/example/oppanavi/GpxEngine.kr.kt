@@ -211,7 +211,25 @@ class GpxEngine(private val context: Context) {
         for (segment in segments) {
             for (i in segment.indices) {
                 if (i > 0) {
-                    totalDistance += haversine(segment[i - 1], segment[i])
+                    val prev = segment[i - 1]
+                    val curr = segment[i]
+                    val dist = haversine(prev, curr)
+
+                    // 50m 초과 구간 보간
+                    if (dist > 50.0) {
+                        val steps = (dist / 25.0).toInt()
+                        for (step in 1 until steps) {
+                            val ratio = step.toDouble() / steps
+                            val interpLat = prev.latitude + (curr.latitude - prev.latitude) * ratio
+                            val interpLon = prev.longitude + (curr.longitude - prev.longitude) * ratio
+                            val interp = LatLong(interpLat, interpLon)
+                            totalDistance += haversine(points.last(), interp)
+                            points.add(interp)
+                            pointDistances.add(totalDistance)
+                        }
+                    }
+
+                    totalDistance += haversine(points.last(), curr)
                 }
                 points.add(segment[i])
                 pointDistances.add(totalDistance)
