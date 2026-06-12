@@ -125,6 +125,10 @@ class MapManager(
             color = android.graphics.Color.parseColor("#FF6600")
             style = Paint.Style.FILL
         }
+        // 삼각형만 bearing 방향으로 회전
+        canvas.save()
+        canvas.rotate(bearing, 40f, 40f)  // 자전거 중심 기준으로 회전
+
         val path = Path()
         path.moveTo(40f, 6f)
         path.lineTo(30f, 20f)
@@ -139,6 +143,7 @@ class MapManager(
             strokeWidth = 2f
         }
         canvas.drawPath(path, arrowOutline)
+        canvas.restore()
 
         return android.graphics.drawable.BitmapDrawable(context.resources, bmp)
     }

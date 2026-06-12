@@ -20,7 +20,11 @@ class GpxEngine(private val context: Context) {
     private val pointDistances = mutableListOf<Double>()
     var totalDistance = 0.0
     var nearestIndex = 0
+
+    // 경로 이탈 판정
     val OFF_ROUTE_THRESHOLD = 100.0
+    private val OFF_ROUTE_COUNT_THRESHOLD = 5  // 5회 연속 초과 시 이탈
+    private var offRouteCount = 0
 
     fun load(inputStream: InputStream): Boolean {
         points.clear()
@@ -28,6 +32,7 @@ class GpxEngine(private val context: Context) {
         pointDistances.clear()
         totalDistance = 0.0
         nearestIndex = 0
+        offRouteCount = 0
 
         return try {
             val factory = SAXParserFactory.newInstance()
@@ -101,6 +106,7 @@ class GpxEngine(private val context: Context) {
         pointDistances.clear()
         totalDistance = 0.0
         nearestIndex = 0
+        offRouteCount = 0
     }
 
     data class ProgressInfo(
@@ -118,8 +124,8 @@ class GpxEngine(private val context: Context) {
         var minDist = Double.MAX_VALUE
         var nearestIdx = nearestIndex
 
-        val searchStart = maxOf(0, nearestIndex - 10)
-        val searchEnd = minOf(points.size - 1, nearestIndex + 30)
+        val searchStart = maxOf(0, nearestIndex - 5)
+        val searchEnd = minOf(points.size - 1, nearestIndex + 50)
 
         for (i in searchStart..searchEnd) {
             val d = haversine(current, points[i])
@@ -141,6 +147,14 @@ class GpxEngine(private val context: Context) {
 
         nearestIndex = nearestIdx
 
+        // 연속 이탈 카운트 업데이트
+        if (minDist > OFF_ROUTE_THRESHOLD) {
+            offRouteCount++
+        } else {
+            offRouteCount = 0  // 복귀하면 즉시 리셋
+        }
+        val isOffRoute = offRouteCount >= OFF_ROUTE_COUNT_THRESHOLD
+
         val progressDist = pointDistances.getOrElse(nearestIdx) { 0.0 }
         val pct = if (totalDistance > 0) {
             ((progressDist / totalDistance) * 100).roundToInt().coerceIn(0, 100)
@@ -149,7 +163,7 @@ class GpxEngine(private val context: Context) {
         val remainKm = "%.1f".format(maxOf(0.0, totalDistance - progressDist) / 1000.0)
         val progressKm = "%.1f".format(progressDist / 1000.0)
 
-        return ProgressInfo(pct, remainKm, progressKm, nearestIdx, minDist, minDist > OFF_ROUTE_THRESHOLD)
+        return ProgressInfo(pct, remainKm, progressKm, nearestIdx, minDist, isOffRoute)
     }
 
     fun haversine(a: LatLong, b: LatLong): Double {

@@ -103,7 +103,17 @@ class RideManager(private val context: Context) {
     ) {
         val distKm = getDistanceKm()
         val avgSpeed = getAvgSpeed()
-        val kcal = (distKm * USER_WEIGHT_KG * 0.7).roundToInt()
+        val elapsed = getElapsedMs()
+        val hours = elapsed / 3600000.0
+        val avgSpeedKmh = if (hours > 0) distKm / hours else 0.0
+        val met = when {
+            avgSpeedKmh < 12 -> 4.0
+            avgSpeedKmh < 16 -> 6.0
+            avgSpeedKmh < 20 -> 8.0
+            avgSpeedKmh < 24 -> 10.0
+            else -> 12.0
+        }
+        val kcal = (met * USER_WEIGHT_KG * hours).roundToInt()
         val timeStr = getRideTimeStr()
 
         val summary = "거리: ${"%.1f".format(distKm)}km\n시간: $timeStr\n평균속도: ${"%.1f".format(avgSpeed)}km/h\n칼로리: ${kcal}kcal"

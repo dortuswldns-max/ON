@@ -66,7 +66,7 @@ class GpxManager(
         for (segment in engine.segments) {
             val donePaint = AndroidGraphicFactory.INSTANCE.createPaint()
             donePaint.color = AndroidGraphicFactory.INSTANCE.createColor(180, 150, 150, 150)
-            donePaint.strokeWidth = 6f
+            donePaint.strokeWidth = 12f
             donePaint.setStyle(org.mapsforge.core.graphics.Style.STROKE)
             val doneLayer = Polyline(donePaint, AndroidGraphicFactory.INSTANCE)
             gpxLayerDones.add(doneLayer)
@@ -74,7 +74,7 @@ class GpxManager(
 
             val outlinePaint = AndroidGraphicFactory.INSTANCE.createPaint()
             outlinePaint.color = AndroidGraphicFactory.INSTANCE.createColor(200, 255, 255, 255)
-            outlinePaint.strokeWidth = 10f
+            outlinePaint.strokeWidth = 20f
             outlinePaint.setStyle(org.mapsforge.core.graphics.Style.STROKE)
             val outlineLayer = Polyline(outlinePaint, AndroidGraphicFactory.INSTANCE)
             outlineLayer.latLongs.addAll(segment)
@@ -83,7 +83,7 @@ class GpxManager(
 
             val remainPaint = AndroidGraphicFactory.INSTANCE.createPaint()
             remainPaint.color = AndroidGraphicFactory.INSTANCE.createColor(220, 220, 50, 50)
-            remainPaint.strokeWidth = 6f
+            remainPaint.strokeWidth = 12f
             remainPaint.setStyle(org.mapsforge.core.graphics.Style.STROKE)
             val remainLayer = Polyline(remainPaint, AndroidGraphicFactory.INSTANCE)
             remainLayer.latLongs.addAll(segment)
