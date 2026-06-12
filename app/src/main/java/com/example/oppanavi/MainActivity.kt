@@ -231,7 +231,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             if (rideManager.isPaused) resumeRide() else pauseRide()
         }
 
-        btnFinish.setOnClickListener { rideManager.showFinishDialog() }
+        btnFinish.setOnClickListener {
+            pauseRide()
+            rideManager.showFinishDialog(
+                onStop = { stopRide() },
+                onContinue = { resumeRide() }
+            )
+        }
 
         btnClearGpx.setOnClickListener { clearGpxRoute() }
     }
@@ -261,7 +267,20 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         btnPause.setImageResource(android.R.drawable.ic_media_pause)
     }
 
-
+    private fun stopRide() {
+        rideManager.stopRide()
+        tvTotalDist.text = "0.0km"
+        tvRideTime.text = "00:00"
+        tvAvgSpeed.text = "0.0avg"
+        tvPauseStatus.text = ""
+        btnPause.setImageResource(android.R.drawable.ic_media_pause)
+        btnMyLocation.visibility = View.GONE
+        btnLoadGpx.visibility = View.GONE
+        btnPause.visibility = View.GONE
+        btnFinish.visibility = View.GONE
+        layoutStartOverlay.visibility = View.VISIBLE
+        Toast.makeText(this, "라이딩 종료!", Toast.LENGTH_SHORT).show()
+    }
 
     // GPX 레이어 3개 전부 완전 제거
     private fun clearGpxRoute() {
@@ -472,7 +491,22 @@ private fun updateFollowModeUI() {
         }
         return outFile
     }
+    private var backPressedTime = 0L
 
+    init {
+        onBackPressedDispatcher.addCallback(this,
+            object : androidx.activity.OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (System.currentTimeMillis() - backPressedTime < 2000) {
+                        finish()
+                    } else {
+                        backPressedTime = System.currentTimeMillis()
+                        Toast.makeText(this@MainActivity, "한 번 더 누르면 종료됩니다", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
+    }
     override fun onDestroy() {
         super.onDestroy()
         timerHandler.removeCallbacks(timerRunnable)
