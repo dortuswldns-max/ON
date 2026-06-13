@@ -61,7 +61,7 @@
                 android:layout_height="wrap_content"
                 android:text="0.0km"
                 android:textColor="#FFFFFF"
-                android:textSize="13sp"
+                android:textSize="16sp"
                 android:paddingHorizontal="6dp"/>
 
             <TextView
@@ -69,7 +69,7 @@
                 android:layout_height="wrap_content"
                 android:text="|"
                 android:textColor="#666666"
-                android:textSize="13sp"/>
+                android:textSize="16sp"/>
 
             <TextView
                 android:id="@+id/tvRideTime"
@@ -77,7 +77,7 @@
                 android:layout_height="wrap_content"
                 android:text="00:00"
                 android:textColor="#FFFFFF"
-                android:textSize="13sp"
+                android:textSize="16sp"
                 android:paddingHorizontal="6dp"/>
 
             <TextView
@@ -162,7 +162,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="추적 ON"
-            android:textColor="#2F80ED"
+            android:textColor="#FFFFFF"
             android:textSize="12sp"
             android:layout_marginTop="2dp"/>
 
@@ -197,36 +197,50 @@
         android:id="@+id/layoutStartOverlay"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:background="#88000000"
+        android:background="#AD000014"
         android:orientation="vertical"
         android:gravity="center"
         android:visibility="visible">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="OppaNavi"
-            android:textColor="#FFFFFF"
-            android:textSize="32sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="8dp"/>
+        <ImageView
+            android:layout_width="381dp"
+            android:layout_height="187dp"
+            android:layout_marginBottom="10dp"
+            android:background="@android:color/transparent"
+            android:scaleType="fitCenter"
+            android:src="@drawable/team_photo2" />
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="준비됐어? 🚴"
-            android:textColor="#CCCCCC"
-            android:textSize="18sp"
-            android:layout_marginBottom="40dp"/>
+            android:text="OPPA NAVI"
+            android:textColor="#FFFFFF"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.15"
+            android:layout_marginBottom="6dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="오프라인 자전거 네비"
+            android:textColor="#88BBFF"
+            android:textSize="12sp"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="24dp"/>
 
         <Button
             android:id="@+id/btnStartRide"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="주행 시작"
-            android:textSize="18sp"
+            android:text="🚴 주행 시작"
+            android:textSize="15sp"
+            android:textColor="#B2EBD4"
             android:paddingHorizontal="32dp"
-            android:paddingVertical="12dp"/>
+            android:paddingVertical="10dp"
+            android:backgroundTint="#33A8D8B0"
+            android:strokeColor="#A8D8B0"
+            android:strokeWidth="2"/>
 
     </LinearLayout>
 
