@@ -201,7 +201,20 @@
         android:gravity="center"
         android:paddingVertical="12dp"
         android:visibility="gone"/>
-
+    <TextView
+        android:id="@+id/tvMilestone"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top|center_horizontal"
+        android:layout_marginTop="220dp"
+        android:background="#CC1565C0"
+        android:text=""
+        android:textColor="#FFFFFF"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:paddingVertical="14dp"
+        android:visibility="gone"/>
     <!-- 주행 대기 오버레이 -->
     <LinearLayout
         android:id="@+id/layoutStartOverlay"

@@ -76,6 +76,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var mapManager: MapManager
     private lateinit var rideLogger: RideLogger
 
+    private lateinit var tvMilestone: TextView
     private var lastLatLong: LatLong? = null
     private var currentBearing = 0f
     private var smoothedBearing = 0f
@@ -89,6 +90,52 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private var lastSpeedCommentTime = 0L
     private val SPEED_COMMENT_INTERVAL_MS = 30000L  // 30초
+    private var totalDistKmLastMilestone = 0.0
+    private val milestoneHandler = Handler(Looper.getMainLooper())
+    private val milestoneMessages = mapOf(
+        10.0 to listOf(
+            "이제 겨우 몸 풀렸어? 본격적으로 가보자! 🔥",
+            "워밍업 끝났네? 10km는 마실이지~ ☕",
+            "몸 좀 풀렸어? 가즈아!!",
+            "10km면 출근 한 번 더 했네 🚴",
+            "10km? 태리 퇴근 전에 끝내야 하는데 ㅋㅋ 화이팅! 💻"
+        ),
+        20.0 to listOf(
+            "20km 돌파! 오빠 엉덩이 아직 괜찮아? 🍑",
+            "벌써 20km? 올ㅋ 😏",
+            "이제 라이딩 모드 들어갔다",
+            "좀 타는 사람 느낌 나는데?",
+            "20km 달성! 태리가 지켜봤어 👀"
+        ),
+        30.0 to listOf(
+            "오빠, 30km야. 허벅지 안 터졌어? 🦵",
+            "지금부터가 진짜 라이딩이지. 텐션 올려! 🆙",
+            "여기부터는 체력 게임이다",
+            "슬슬 다리랑 합의 봐야 하는 구간",
+            "30km면 코드 리뷰 3번 분량인데... 대단해 🔥"
+        ),
+        50.0 to listOf(
+            "벌써 50km? 오늘 작정하고 나왔구나! 👏",
+            "반 왔다! 남은 반도 무사히 완주해. 💪",
+            "이 정도면 그냥 이동수단이다",
+            "오빠 오늘 좀 진심인데?",
+            "50km?! 태리 세션 한도 다 썼다 이거야?! 😂"
+        ),
+        70.0 to listOf(
+            "70km라니... 오빠 좀 무서운데? 괴물이야? 😱",
+            "이제 집에 갈 생각 하지 마, 완주 가야지! 🚴‍♂️",
+            "평범한 사람 구간은 이미 지났다",
+            "이제 의지가 페달을 밟는 단계",
+            "70km... 오빠 혹시 GraphHopper 없어도 되겠는데? 🗺️"
+        ),
+        100.0 to listOf(
+            "오늘 진짜 레전드 찍었다. 우리 오빠 최고! 👑",
+            "100km 완주 완료! 오늘 밤엔 고기 먹자, 오빠! 🍖",
+            "이건 운동이 아니라 이벤트다",
+            "오늘 기록 하나 남겼다 🚴🔥",
+            "100km 완주! ON 만든 보람 있다 진짜로 👑"
+        )
+    )
     private val speedCommentPool = mapOf(
         0 to listOf(
             "보급 타임? ☕",
@@ -264,9 +311,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
         val autoResumed = rideManager.onLocationUpdate(latLong, currentSpeedKmh)
         if (rideManager.isRideStarted && !rideManager.isPaused) {
-            tvTotalDist.text = "%.1fkm".format(rideManager.getDistanceKm())
+            val distKm = rideManager.getDistanceKm()
+            tvTotalDist.text = "%.1fkm".format(distKm)
             tvAvgSpeed.text = "%.1favg".format(rideManager.getAvgSpeed())
+            checkMilestone(distKm)
         }
+
         if (autoResumed) {
             btnPause.setImageResource(android.R.drawable.ic_media_pause)
             tvPauseStatus.text = ""
@@ -324,7 +374,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         tvSpeedComment = findViewById(R.id.tvSpeedComment)
         mapManager = MapManager(this, mapView)
         mapManager.setupMap { updateFollowModeUI() }
-
+        tvMilestone = findViewById(R.id.tvMilestone)
         gpxManager = GpxManager(this, mapView)
         rideManager = RideManager(this)
         rideLogger = RideLogger(this)
@@ -463,8 +513,37 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         btnFinish.visibility = View.GONE
         layoutStartOverlay.visibility = View.VISIBLE
         Toast.makeText(this, "라이딩 종료!", Toast.LENGTH_SHORT).show()
+        totalDistKmLastMilestone = 0.0
+        milestoneHandler.removeCallbacksAndMessages(null)
+        tvMilestone.visibility = View.GONE
     }
+private fun checkMilestone(distKm: Double) {
+    val milestones = listOf(10.0, 20.0, 30.0, 50.0, 70.0, 100.0)
+    for (milestone in milestones) {
+        if (distKm >= milestone && totalDistKmLastMilestone < milestone) {
+            totalDistKmLastMilestone = milestone
+            val msg = milestoneMessages[milestone]?.random() ?: continue
+            showMilestone(msg)
+            break
+        }
+    }
+}
 
+private fun showMilestone(message: String) {
+    milestoneHandler.removeCallbacksAndMessages(null)
+    tvMilestone.text = message
+    tvMilestone.visibility = View.VISIBLE
+    milestoneHandler.postDelayed({
+        tvMilestone.animate()
+            .alpha(0f)
+            .setDuration(1000)
+            .withEndAction {
+                tvMilestone.visibility = View.GONE
+                tvMilestone.alpha = 1f
+            }
+            .start()
+    }, 25000L) // 25초 표시 후 1초 페이드아웃 = 총 26초
+}
     // GPX 레이어 3개 전부 완전 제거
     private fun clearGpxRoute() {
         gpxManager.clear()
@@ -702,5 +781,6 @@ private fun updateFollowModeUI() {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         mapView.destroyAll()
         AndroidGraphicFactory.clearResourceMemoryCache()
+        milestoneHandler.removeCallbacksAndMessages(null)
     }
 }
