@@ -688,9 +688,13 @@ private fun updateFollowModeUI() {
     override fun onDestroy() {
         super.onDestroy()
         timerHandler.removeCallbacks(timerRunnable)
+        offRouteHandler.removeCallbacks(offRouteRunnable)
+        // 주행 중 비정상 종료시 로그 자동 저장
+        if (rideLogger.isActive) {
+            rideLogger.stopLogging()
+        }
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         mapView.destroyAll()
         AndroidGraphicFactory.clearResourceMemoryCache()
-        offRouteHandler.removeCallbacks(offRouteRunnable)
     }
 }

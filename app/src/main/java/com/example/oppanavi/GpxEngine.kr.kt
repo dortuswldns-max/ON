@@ -24,6 +24,8 @@ class GpxEngine(private val context: Context) {
     val OFF_ROUTE_THRESHOLD = 100.0
     private val OFF_ROUTE_COUNT_THRESHOLD = 5
     private var offRouteCount = 0
+    private var reconnectCount = 0
+    private val RECONNECT_THRESHOLD = 4  // 4회 연속 50m 이내 → 재스냅
 
     // 보간 간격 (5m마다 포인트 생성)
     private val INTERPOLATE_INTERVAL = 5.0
@@ -139,6 +141,7 @@ class GpxEngine(private val context: Context) {
         totalDistance = 0.0
         nearestIndex = 0
         offRouteCount = 0
+        reconnectCount = 0
     }
 
     data class ProgressInfo(
@@ -161,6 +164,20 @@ class GpxEngine(private val context: Context) {
             if (d < minDist) {
                 minDist = d
                 nearestIdx = i
+            }
+        }
+
+        // 이탈 중 재합류 감지 — 4회 연속 50m 이내면 재스냅
+        if (offRouteCount >= OFF_ROUTE_COUNT_THRESHOLD) {
+            if (minDist < 50.0) {
+                reconnectCount++
+                if (reconnectCount >= RECONNECT_THRESHOLD) {
+                    // 이미 위에서 전체탐색 완료 — nearestIdx 그대로 사용
+                    reconnectCount = 0
+                    offRouteCount = 0
+                }
+            } else {
+                reconnectCount = 0
             }
         }
 
