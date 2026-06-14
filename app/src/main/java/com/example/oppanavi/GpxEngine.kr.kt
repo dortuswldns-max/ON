@@ -20,6 +20,7 @@ class GpxEngine(private val context: Context) {
     private val pointDistances = mutableListOf<Double>()
     var totalDistance = 0.0
     var nearestIndex = 0
+    var lastDistToRoute = Double.MAX_VALUE
 
     val OFF_ROUTE_THRESHOLD = 100.0
     private val OFF_ROUTE_COUNT_THRESHOLD = 5
@@ -182,6 +183,7 @@ class GpxEngine(private val context: Context) {
         }
 
         nearestIndex = nearestIdx
+        lastDistToRoute = minDist
 
         if (minDist > OFF_ROUTE_THRESHOLD) {
             offRouteCount++
@@ -211,7 +213,29 @@ class GpxEngine(private val context: Context) {
                 cos(lat1) * cos(lat2) * sin(dLon / 2) * sin(dLon / 2)
         return r * 2 * atan2(sqrt(x), sqrt(1 - x))
     }
+    // 점을 선분 위에 투영
+    fun projectPointOnSegment(p: LatLong, a: LatLong, b: LatLong): LatLong {
+        val ax = a.longitude; val ay = a.latitude
+        val bx = b.longitude; val by = b.latitude
+        val px = p.longitude; val py = p.latitude
 
+        val dx = bx - ax; val dy = by - ay
+        val lenSq = dx * dx + dy * dy
+        if (lenSq == 0.0) return a
+
+        val t = ((px - ax) * dx + (py - ay) * dy) / lenSq
+        val tc = t.coerceIn(0.0, 1.0)
+
+        return LatLong(ay + tc * dy, ax + tc * dx)
+    }
+
+    // nearestIndex 기준으로 경로 위 투영점 반환
+    fun getProjectedPoint(current: LatLong, nearestIdx: Int): LatLong {
+        if (points.size < 2) return current
+        val a = points.getOrNull(nearestIdx - 1) ?: return points[nearestIdx]
+        val b = points[nearestIdx]
+        return projectPointOnSegment(current, a, b)
+    }
     data class BoundingBox(
         val minLat: Double, val maxLat: Double,
         val minLon: Double, val maxLon: Double

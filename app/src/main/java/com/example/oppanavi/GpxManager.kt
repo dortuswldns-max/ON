@@ -47,7 +47,13 @@ class GpxManager(
     }
 
     fun getPointCount() = engine.points.size
+    fun getProjectedPoint(latLong: LatLong): LatLong {
+        return engine.getProjectedPoint(latLong, engine.nearestIndex)
+    }
 
+    fun getLastDistToRoute(): Double {
+        return engine.lastDistToRoute
+    }
     // ── 내부 함수들 ──────────────────────────────────────
 
     private fun clearLayers() {

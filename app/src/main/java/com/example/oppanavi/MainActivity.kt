@@ -201,7 +201,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
         if (location.hasBearing()) currentBearing = location.bearing
 
-        mapManager.drawMyLocation(latLong, currentBearing)
+        if (gpxManager.hasRoute) {
+            val projected = gpxManager.getProjectedPoint(latLong)
+            val distToRoute = gpxManager.getLastDistToRoute()
+            mapManager.drawMyLocation(latLong, currentBearing, distToRoute, projected)
+        } else {
+            mapManager.drawMyLocation(latLong, currentBearing)
+        }
         if (mapManager.isFollowMode) mapView.setCenter(latLong)
 
         currentSpeedKmh = if (location.hasSpeed()) {

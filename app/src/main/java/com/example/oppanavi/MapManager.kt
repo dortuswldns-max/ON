@@ -23,7 +23,12 @@ class MapManager(
 ) {
     private var locationMarker: Marker? = null
     private var followMode = true
-
+    private var snapCount = 0
+    private var releaseCount = 0
+    private val SNAP_THRESHOLD = 3
+    private val SNAP_DIST_M = 20.0
+    private val RELEASE_THRESHOLD = 3
+    private var isSnapped = false
     val isFollowMode get() = followMode
 
     fun setupMap(onTouchDisableFollow: () -> Unit) {
@@ -86,16 +91,37 @@ class MapManager(
         zoom?.let { mapView.setZoomLevel(it) }
     }
 
-    fun drawMyLocation(latLong: LatLong, bearing: Float) {
+    fun drawMyLocation(latLong: LatLong, bearing: Float,
+                       distToRoute: Double = Double.MAX_VALUE,
+                       projectedPoint: LatLong? = null) {
         locationMarker?.let { mapView.layerManager.layers.remove(it) }
+
+        val displayPoint = if (projectedPoint != null) {
+            if (distToRoute <= SNAP_DIST_M) {
+                snapCount++
+                releaseCount = 0
+                if (snapCount >= SNAP_THRESHOLD) isSnapped = true
+            } else {
+                releaseCount++
+                snapCount = 0
+                if (releaseCount >= RELEASE_THRESHOLD) isSnapped = false
+            }
+            if (isSnapped) projectedPoint else latLong
+        } else {
+            isSnapped = false
+            snapCount = 0
+            releaseCount = 0
+            latLong
+        }
+
         val drawable = createBicycleBitmap(bearing)
         val bitmap = AndroidGraphicFactory.convertToBitmap(drawable)
-        locationMarker = Marker(latLong, bitmap, 0, 0)
+        locationMarker = Marker(displayPoint, bitmap, 0, 0)
         mapView.layerManager.layers.add(locationMarker!!)
     }
 
     private fun createBicycleBitmap(bearing: Float): android.graphics.drawable.BitmapDrawable {
-        val size = 80
+        val size = 160
         val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bmp)
 
@@ -103,7 +129,7 @@ class MapManager(
             isAntiAlias = true
             color = android.graphics.Color.parseColor("#1565C0")
             style = Paint.Style.STROKE
-            strokeWidth = 4f
+            strokeWidth = 8f
         }
         val wheelFill = Paint().apply {
             isAntiAlias = true
@@ -114,40 +140,40 @@ class MapManager(
             isAntiAlias = true
             color = android.graphics.Color.WHITE
             style = Paint.Style.STROKE
-            strokeWidth = 6f
+            strokeWidth = 12f
         }
-        canvas.drawCircle(22f, 55f, 16f, wheelFill)
-        canvas.drawCircle(22f, 55f, 16f, outlinePaint)
-        canvas.drawCircle(22f, 55f, 16f, wheelPaint)
-        canvas.drawCircle(58f, 55f, 16f, wheelFill)
-        canvas.drawCircle(58f, 55f, 16f, outlinePaint)
-        canvas.drawCircle(58f, 55f, 16f, wheelPaint)
+        canvas.drawCircle(44f, 110f, 32f, wheelFill)
+        canvas.drawCircle(44f, 110f, 32f, outlinePaint)
+        canvas.drawCircle(44f, 110f, 32f, wheelPaint)
+        canvas.drawCircle(116f, 110f, 32f, wheelFill)
+        canvas.drawCircle(116f, 110f, 32f, outlinePaint)
+        canvas.drawCircle(116f, 110f, 32f, wheelPaint)
 
         val framePaint = Paint().apply {
             isAntiAlias = true
             color = android.graphics.Color.parseColor("#1565C0")
             style = Paint.Style.STROKE
-            strokeWidth = 4f
+            strokeWidth = 8f
             strokeCap = Paint.Cap.ROUND
         }
-        canvas.drawLine(22f, 55f, 40f, 28f, framePaint)
-        canvas.drawLine(40f, 28f, 58f, 55f, framePaint)
-        canvas.drawLine(40f, 28f, 40f, 42f, framePaint)
-        canvas.drawLine(22f, 55f, 40f, 42f, framePaint)
+        canvas.drawLine(44f, 110f, 80f, 56f, framePaint)
+        canvas.drawLine(80f, 56f, 116f, 110f, framePaint)
+        canvas.drawLine(80f, 56f, 80f, 84f, framePaint)
+        canvas.drawLine(44f, 110f, 80f, 84f, framePaint)
 
         val arrowPaint = Paint().apply {
             isAntiAlias = true
             color = android.graphics.Color.parseColor("#FF6600")
             style = Paint.Style.FILL
         }
-        // 삼각형만 bearing 방향으로 회전
+
         canvas.save()
-        canvas.rotate(bearing, 40f, 40f)  // 자전거 중심 기준으로 회전
+        canvas.rotate(bearing, 80f, 80f)
 
         val path = Path()
-        path.moveTo(40f, 6f)
-        path.lineTo(30f, 20f)
-        path.lineTo(50f, 20f)
+        path.moveTo(80f, 12f)
+        path.lineTo(60f, 40f)
+        path.lineTo(100f, 40f)
         path.close()
         canvas.drawPath(path, arrowPaint)
 
@@ -155,7 +181,7 @@ class MapManager(
             isAntiAlias = true
             color = android.graphics.Color.WHITE
             style = Paint.Style.STROKE
-            strokeWidth = 2f
+            strokeWidth = 4f
         }
         canvas.drawPath(path, arrowOutline)
         canvas.restore()
