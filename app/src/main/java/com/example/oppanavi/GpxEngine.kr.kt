@@ -124,25 +124,12 @@ class GpxEngine(private val context: Context) {
         var minDist = Double.MAX_VALUE
         var nearestIdx = nearestIndex
 
-        val searchStart = maxOf(0, nearestIndex - 5)
-        val searchEnd = minOf(points.size - 1, nearestIndex + 50)
-
-        for (i in searchStart..searchEnd) {
+        // 항상 전체 탐색 — 뭉텅뭉텅 완전 해결
+        for (i in points.indices) {
             val d = haversine(current, points[i])
             if (d < minDist) {
                 minDist = d
                 nearestIdx = i
-            }
-        }
-
-// 가까운 점을 못 찾으면 전체 탐색
-        if (minDist > 30) {
-            for (i in points.indices) {
-                val d = haversine(current, points[i])
-                if (d < minDist) {
-                    minDist = d
-                    nearestIdx = i
-                }
             }
         }
 
