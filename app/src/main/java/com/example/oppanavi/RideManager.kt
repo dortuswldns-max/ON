@@ -165,6 +165,7 @@ class RideManager(private val context: Context) {
     }
 
     private fun getElapsedMs() = System.currentTimeMillis() - rideStartTime - pausedTime
+    fun getElapsedSec() = getElapsedMs() / 1000
 
     private fun haversine(a: LatLong, b: LatLong): Double {
         val R = 6371000.0

@@ -74,6 +74,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var rideManager: RideManager
     private lateinit var appLocationManager: AppLocationManager
     private lateinit var mapManager: MapManager
+    private lateinit var rideLogger: RideLogger
 
     private var lastLatLong: LatLong? = null
     private var currentBearing = 0f
@@ -83,6 +84,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var speedZone = -1
     private var speedZoneCount = 0
     private val SPEED_ZONE_THRESHOLD = 3 // 3회 연속 같은 구간이면 멘트 변경
+    private var currentAccuracy = 0f
+    private var currentProvider = "unknown"
     private val speedCommentPool = mapOf(
         0 to listOf(
             "보급 타임? ☕",
@@ -201,6 +204,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         currentSpeedKmh = if (location.hasSpeed()) {
             (location.speed * 3.6f).roundToInt()
         } else 0
+        currentAccuracy = location.accuracy
+        currentProvider = location.provider ?: "unknown"
         tvSpeed.text = currentSpeedKmh.toString()
 
 // 속도 구간 멘트
@@ -259,6 +264,23 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             val info = gpxManager.updateProgress(latLong)
             tvGpxProgress.text = "${info.progressPct}%"
             tvGpxRemain.text = "남은 ${info.remainKm}km"
+
+            // 로그 기록
+            if (rideLogger.isActive) {
+                rideLogger.log(
+                    elapsedSec = rideManager.getElapsedSec(),
+                    speedKmh = currentSpeedKmh,
+                    accuracyM = currentAccuracy,
+                    provider = currentProvider,
+                    nearestIndex = info.nearestIdx,
+                    distToRouteM = info.distToRoute,
+                    isOffRoute = info.isOffRoute,
+                    offRouteCount = 0,
+                    latitude = latLong.latitude,
+                    longitude = latLong.longitude
+                )
+            }
+
             if (info.isOffRoute) {
                 if (offRouteStartTime == 0L) {
                     offRouteStartTime = System.currentTimeMillis()
@@ -293,6 +315,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
         gpxManager = GpxManager(this, mapView)
         rideManager = RideManager(this)
+        rideLogger = RideLogger(this)
         appLocationManager = AppLocationManager(
             context = this,
             onLocationUpdate = { location -> handleLocationUpdate(location) },
@@ -387,6 +410,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun startRide() {
         rideManager.startRide()
+        rideLogger.startLogging()
         tvTotalDist.text = "0.0km"
         tvRideTime.text = "00:00"
         tvAvgSpeed.text = "0.0avg"
@@ -411,6 +435,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun stopRide() {
+        val logPath = rideLogger.stopLogging()
+        logPath?.let {
+            Toast.makeText(this, "로그 저장됨 📊", Toast.LENGTH_SHORT).show()
+        }
         rideManager.stopRide()
         tvTotalDist.text = "0.0km"
         tvRideTime.text = "00:00"
