@@ -63,6 +63,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var btnFinish: FloatingActionButton
     private lateinit var btnClearGpx: FloatingActionButton
 
+    private var firstLocationButtonPress = true
+
     private var locationMarker: Marker? = null
 
 
@@ -219,7 +221,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             updateFollowModeUI()
             lastLatLong?.let {
                 mapView.setCenter(it)
-                mapView.setZoomLevel(17.toByte())
+                if (firstLocationButtonPress) {
+                    mapView.setZoomLevel(17.toByte())
+                    firstLocationButtonPress = false
+                }
             } ?: moveToCurrentLocation()
         }
 
@@ -313,6 +318,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     ).show()
                     layoutGpxInfo.visibility = View.VISIBLE
                     btnClearGpx.visibility = View.VISIBLE
+                    firstLocationButtonPress = true  // 현재위치 버튼 zoom 17 리셋
                 }
             }
         } catch (e: Exception) {

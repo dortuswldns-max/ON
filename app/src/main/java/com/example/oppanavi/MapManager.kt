@@ -30,10 +30,14 @@ class MapManager(
         mapView.isClickable = true
         mapView.mapScaleBar.isVisible = true
 
-        mapView.setOnTouchListener { _, _ ->
+        mapView.setOnTouchListener { _, event ->
             if (followMode) {
-                followMode = false
-                onTouchDisableFollow()
+                // 핀치줌(두 손가락)은 추적 유지, 단순 터치만 추적 OFF
+                if (event.pointerCount == 1 &&
+                    event.action == android.view.MotionEvent.ACTION_DOWN) {
+                    followMode = false
+                    onTouchDisableFollow()
+                }
             }
             false
         }
@@ -64,6 +68,17 @@ class MapManager(
 
     fun disableFollow() {
         followMode = false
+    }
+
+    // 줌만 변경 (추적 유지)
+    fun zoomIn() {
+        val current = mapView.model.mapViewPosition.zoomLevel
+        mapView.setZoomLevel((current + 1).coerceAtMost(20).toByte())
+    }
+
+    fun zoomOut() {
+        val current = mapView.model.mapViewPosition.zoomLevel
+        mapView.setZoomLevel((current - 1).coerceAtLeast(1).toByte())
     }
 
     fun moveToLocation(latLong: LatLong, zoom: Byte? = null) {

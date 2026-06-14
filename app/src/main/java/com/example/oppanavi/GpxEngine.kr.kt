@@ -21,10 +21,12 @@ class GpxEngine(private val context: Context) {
     var totalDistance = 0.0
     var nearestIndex = 0
 
-    // 경로 이탈 판정
     val OFF_ROUTE_THRESHOLD = 100.0
-    private val OFF_ROUTE_COUNT_THRESHOLD = 5  // 5회 연속 초과 시 이탈
+    private val OFF_ROUTE_COUNT_THRESHOLD = 5
     private var offRouteCount = 0
+
+    // 보간 간격 (5m마다 포인트 생성)
+    private val INTERPOLATE_INTERVAL = 5.0
 
     fun load(inputStream: InputStream): Boolean {
         points.clear()
@@ -87,6 +89,9 @@ class GpxEngine(private val context: Context) {
             if (segments.isEmpty() && waypointFallback.size >= 2) {
                 segments.add(waypointFallback)
             }
+
+            // 보간 적용 — segments 자체를 촘촘하게 만들기
+            interpolateSegments()
             rebuildFlatPoints()
 
             if (points.size < 2) {
@@ -97,6 +102,33 @@ class GpxEngine(private val context: Context) {
         } catch (e: Exception) {
             Toast.makeText(context, "GPX 파싱 오류: ${e.message}", Toast.LENGTH_SHORT).show()
             false
+        }
+    }
+
+    // segments 자체를 5m 간격으로 보간
+    private fun interpolateSegments() {
+        for (segIdx in segments.indices) {
+            val original = segments[segIdx].toList()
+            val interpolated = mutableListOf<LatLong>()
+
+            for (i in original.indices) {
+                interpolated.add(original[i])
+                if (i < original.size - 1) {
+                    val a = original[i]
+                    val b = original[i + 1]
+                    val dist = haversine(a, b)
+                    if (dist > INTERPOLATE_INTERVAL) {
+                        val steps = (dist / INTERPOLATE_INTERVAL).toInt()
+                        for (step in 1 until steps) {
+                            val ratio = step.toDouble() / steps
+                            val lat = a.latitude + (b.latitude - a.latitude) * ratio
+                            val lon = a.longitude + (b.longitude - a.longitude) * ratio
+                            interpolated.add(LatLong(lat, lon))
+                        }
+                    }
+                }
+            }
+            segments[segIdx] = interpolated.toMutableList()
         }
     }
 
@@ -124,7 +156,6 @@ class GpxEngine(private val context: Context) {
         var minDist = Double.MAX_VALUE
         var nearestIdx = nearestIndex
 
-        // 항상 전체 탐색 — 뭉텅뭉텅 완전 해결
         for (i in points.indices) {
             val d = haversine(current, points[i])
             if (d < minDist) {
@@ -135,11 +166,10 @@ class GpxEngine(private val context: Context) {
 
         nearestIndex = nearestIdx
 
-        // 연속 이탈 카운트 업데이트
         if (minDist > OFF_ROUTE_THRESHOLD) {
             offRouteCount++
         } else {
-            offRouteCount = 0  // 복귀하면 즉시 리셋
+            offRouteCount = 0
         }
         val isOffRoute = offRouteCount >= OFF_ROUTE_COUNT_THRESHOLD
 
