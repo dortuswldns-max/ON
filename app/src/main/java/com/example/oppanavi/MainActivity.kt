@@ -86,6 +86,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private val SPEED_ZONE_THRESHOLD = 3 // 3회 연속 같은 구간이면 멘트 변경
     private var currentAccuracy = 0f
     private var currentProvider = "unknown"
+
+    private var lastSpeedCommentTime = 0L
+    private val SPEED_COMMENT_INTERVAL_MS = 30000L  // 30초
     private val speedCommentPool = mapOf(
         0 to listOf(
             "보급 타임? ☕",
@@ -226,10 +229,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             }
 
             // 3회 연속 같은 구간일 때만 멘트 변경
-            if (speedZoneCount == SPEED_ZONE_THRESHOLD) {
+            val now = System.currentTimeMillis()
+            if (speedZoneCount == SPEED_ZONE_THRESHOLD ||
+                (currentZone == speedZone && now - lastSpeedCommentTime > SPEED_COMMENT_INTERVAL_MS)) {
                 val comment = speedCommentPool[currentZone]!!.random()
                 if (comment != lastSpeedComment) {
                     lastSpeedComment = comment
+                    lastSpeedCommentTime = now
                     tvSpeedComment.text = comment
                 }
             }
