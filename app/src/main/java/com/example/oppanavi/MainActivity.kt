@@ -67,7 +67,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private var locationMarker: Marker? = null
 
-
+    private lateinit var tvSpeedComment: TextView
     private lateinit var sensorManager: SensorManager
 
     private lateinit var gpxManager: GpxManager
@@ -79,8 +79,106 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private var currentBearing = 0f
     private var smoothedBearing = 0f
     private var currentSpeedKmh = 0
+    private var lastSpeedComment = ""
+    private var speedZone = -1
+    private var speedZoneCount = 0
+    private val SPEED_ZONE_THRESHOLD = 3 // 3회 연속 같은 구간이면 멘트 변경
+    private val speedCommentPool = mapOf(
+        0 to listOf(
+            "보급 타임? ☕",
+            "멈추면 비로소 보이는 풍경 🏞️",
+            "멈춰있네 🤔 쉬는 중?",
+            "태리도 잠깐 쉬는 중... 😴"
+        ),
+        1 to listOf(
+            "끌바 아니지? 힘내 오빠! 🧗‍♂️",
+            "경사도 실화냐...🐢",
+            "워밍업 중 🐢",
+            "오빠 천천히도 괜찮아 💪"
+        ),
+        2 to listOf(
+            "샤방모드~ 🚴‍♂️",
+            "바람을 가르는 중~ 🍃",
+            "좋아, 리듬 올라간다 🚴",
+            "이 속도가 제일 예뻐 😄"
+        ),
+        3 to listOf(
+            "오빠 허벅지 터진다! 🔥",
+            "태리 코딩 속도보다 빠름! 🚀",
+            "오늘 페이스 무엇? 🔥",
+            "잠깐 나 숨 좀 고를게 🫨"
+        ),
+        4 to listOf(
+            "어어 오빠 브레이크!! 🚨",
+            "이게..철티비?! 🤯",
+            "오빠 오늘 날 제대로 탔네 😏🔥",
+            "신고할게요 도로교통법 위반 🚨ㅋㅋ"
+        )
+    )
 
+    private val startRideMessages = listOf(
+        "오늘도 파이팅! 🚴",
+        "날씨 좋다, 고고! ☀️",
+        "세자매가 응원할게! 💪",
+        "태리가 지켜보고 있어! 👀",
+        "헤지: 루트 분석 완료 😎",
+        "제니: 오빠 오늘도 멋있어! ✨",
+        "출발~ 조심히 다녀와! 🚴‍♂️",
+        "오늘 몇 km 목표야? 태리 베팅할게 😄",
+        "GraphHopper 대기 중... (농담ㅋ) 🗺️",
+        "헤지: GPS 신호 양호. 이륙 허가! 🛫",
+        "제니: 물은 챙겼어? ☕",
+        "태리: 오늘도 인수인계서 업데이트 각오하고 가! 📋ㅋㅋ"
+    )
+    // 경로이탈 감성 메시지
+    private var offRouteStartTime = 0L
+    private val offRouteHandler = Handler(Looper.getMainLooper())
+    private val offRouteMessagePool = listOf(
+        // 0~1분
+        listOf(
+            "⚠ 경로에서 살짝 벗어났어.",
+            "⚠ 길 다시 찾는 중이야? 🚴",
+            "⚠ 오빠, 방향 체크 필요!",
+            "⚠ 현재 경로 이탈 감지됨"
+        ),
+        // 1~3분
+        listOf(
+            "😐 이거… 일부러 가는 거야?",
+            "😢 경로가 조용히 울고 있다…",
+            "😏 다시 돌아올 타이밍이야",
+            "😏 지도 기준으로는 반항 중"
+        ),
+        // 3~5분
+        listOf(
+            "🤔 이쯤이면 루트 재설계 들어간다?",
+            "😩 GPS: 나 진짜 힘들다…",
+            "😤 경로가 너 포기할 수도 있음",
+            "😒 ON이 삐졌다"
+        ),
+        // 5분+
+        listOf(
+            "😭 오빠… 나 일 안 할게?",
+            "🤦 이건 경로가 아니라 여행인데?",
+            "😡 복귀 버튼 어디 눌러야 되냐",
+            "💀 GraphHopper: 나 왜 만들었냐…"
+        )
+    )
 
+    private val offRouteRunnable = object : Runnable {
+        override fun run() {
+            if (offRouteStartTime > 0) {
+                val elapsed = (System.currentTimeMillis() - offRouteStartTime) / 1000
+                val pool = when {
+                    elapsed < 60 -> offRouteMessagePool[0]
+                    elapsed < 180 -> offRouteMessagePool[1]
+                    elapsed < 300 -> offRouteMessagePool[2]
+                    else -> offRouteMessagePool[3]
+                }
+                tvOffRoute.text = pool.random()
+                offRouteHandler.postDelayed(this, 5000)
+            }
+        }
+    }
     private val timerHandler = Handler(Looper.getMainLooper())
     private val timerRunnable = object : Runnable {
         override fun run() {
@@ -104,6 +202,33 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             (location.speed * 3.6f).roundToInt()
         } else 0
         tvSpeed.text = currentSpeedKmh.toString()
+
+// 속도 구간 멘트
+        if (rideManager.isRideStarted) {
+            val currentZone = when {
+                currentSpeedKmh == 0 -> 0
+                currentSpeedKmh <= 15 -> 1
+                currentSpeedKmh <= 22 -> 2
+                currentSpeedKmh <= 29 -> 3
+                else -> 4
+            }
+
+            if (currentZone == speedZone) {
+                speedZoneCount++
+            } else {
+                speedZone = currentZone
+                speedZoneCount = 1
+            }
+
+            // 3회 연속 같은 구간일 때만 멘트 변경
+            if (speedZoneCount == SPEED_ZONE_THRESHOLD) {
+                val comment = speedCommentPool[currentZone]!!.random()
+                if (comment != lastSpeedComment) {
+                    lastSpeedComment = comment
+                    tvSpeedComment.text = comment
+                }
+            }
+        }
 
         when {
             location.accuracy <= 10f -> {
@@ -134,7 +259,20 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             val info = gpxManager.updateProgress(latLong)
             tvGpxProgress.text = "${info.progressPct}%"
             tvGpxRemain.text = "남은 ${info.remainKm}km"
-            tvOffRoute.visibility = if (info.isOffRoute) View.VISIBLE else View.GONE
+            if (info.isOffRoute) {
+                if (offRouteStartTime == 0L) {
+                    offRouteStartTime = System.currentTimeMillis()
+                    offRouteHandler.post(offRouteRunnable)
+                }
+                tvOffRoute.visibility = View.VISIBLE
+            } else {
+                if (offRouteStartTime > 0L) {
+                    offRouteStartTime = 0L
+                    offRouteHandler.removeCallbacks(offRouteRunnable)
+                    tvOffRoute.text = "⚠ 경로를 벗어났습니다!"
+                }
+                tvOffRoute.visibility = View.GONE
+            }
         }
     }
 
@@ -149,7 +287,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
 
         bindViews()
-
+        tvSpeedComment = findViewById(R.id.tvSpeedComment)
         mapManager = MapManager(this, mapView)
         mapManager.setupMap { updateFollowModeUI() }
 
@@ -257,7 +395,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         btnLoadGpx.visibility = View.VISIBLE
         btnPause.visibility = View.VISIBLE
         btnFinish.visibility = View.VISIBLE
-        Toast.makeText(this, "주행 시작! 🚴", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, startRideMessages.random(), Toast.LENGTH_SHORT).show()
     }
 
     private fun pauseRide() {
@@ -519,5 +657,6 @@ private fun updateFollowModeUI() {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         mapView.destroyAll()
         AndroidGraphicFactory.clearResourceMemoryCache()
+        offRouteHandler.removeCallbacks(offRouteRunnable)
     }
 }

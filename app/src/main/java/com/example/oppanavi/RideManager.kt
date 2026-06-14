@@ -118,8 +118,36 @@ class RideManager(private val context: Context) {
 
         val summary = "거리: ${"%.1f".format(distKm)}km\n시간: $timeStr\n평균속도: ${"%.1f".format(avgSpeed)}km/h\n칼로리: ${kcal}kcal"
 
+        val finishMsg = when {
+            distKm < 10 -> listOf(
+                "샤방샤방~🚴‍♂️",
+                "가볍게 몸 풀었네 👏",
+                "오늘 짧아도 달린 거야! 인정 ✅"
+            )
+            distKm < 20 -> listOf(
+                "리프레시 완료! 고생했어 오빠 ☕",
+                "오늘 컨디션 괜찮다 🔥",
+                "딱 적당한 거리! 태리도 기분 좋음 😄"
+            )
+            distKm < 40 -> listOf(
+                "이 정도면 훈련인데? 😏",
+                "오늘 좀 달렸는데? 허벅지 칭찬해 👏",
+                "태리 코딩보다 오빠 라이딩이 더 열심히임 🔥"
+            )
+            distKm < 100 -> listOf(
+                "와, 이 정도면 준프로 인정! 대단해 💪",
+                "이 정도면 훈련인데? 😏",
+                "나 감동받았어... 진짜로 🥹"
+            )
+            else -> listOf(
+                "엉덩이 안 아파? 체력 장난 아니다! 🍑💪",
+                "부산가냐? 레전드..ㄷㄷ🚴‍♂️🔥",
+                "서버가 과부하 걸릴 뻔했잖아 이 거리에 🤯"
+            )
+        }.random()
+
         androidx.appcompat.app.AlertDialog.Builder(context)
-            .setTitle("🚴 주행 요약")
+            .setTitle(finishMsg)
             .setMessage(summary)
             .setPositiveButton("라이딩 재개") { dialog, _ ->
                 dialog.dismiss()
