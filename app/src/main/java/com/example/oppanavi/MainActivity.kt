@@ -26,6 +26,10 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import org.mapsforge.core.model.LatLong
+
+// ON 블랙박스 모듈
+// ON 블랙박스 모듈
+import androidx.camera.view.PreviewView
 import org.mapsforge.map.android.graphics.AndroidGraphicFactory
 import org.mapsforge.map.android.util.AndroidUtil
 import org.mapsforge.map.android.view.MapView
@@ -75,6 +79,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var appLocationManager: AppLocationManager
     private lateinit var mapManager: MapManager
     private lateinit var rideLogger: RideLogger
+
+    // ON 블랙박스 모듈 — 제거 시 아래 2줄 삭제
+    private lateinit var cameraModule: CameraModule
+    private var isCameraExpanded = false
 
     private lateinit var tvMilestone: TextView
     private var lastLatLong: LatLong? = null
@@ -315,6 +323,11 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             tvTotalDist.text = "%.1fkm".format(distKm)
             tvAvgSpeed.text = "%.1favg".format(rideManager.getAvgSpeed())
             checkMilestone(distKm)
+
+            // 블랙박스 속도 업데이트 — 급감속 감지용
+            if (::cameraModule.isInitialized) {
+                cameraModule.updateSpeed(location.speed * 3.6f)
+            }
         }
 
         if (autoResumed) {
@@ -378,6 +391,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         gpxManager = GpxManager(this, mapView)
         rideManager = RideManager(this)
         rideLogger = RideLogger(this)
+
+// ON 블랙박스 초기화 — 제거 시 아래 블록 삭제
+        initCameraModule()
         appLocationManager = AppLocationManager(
             context = this,
             onLocationUpdate = { location -> handleLocationUpdate(location) },
@@ -472,6 +488,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun startRide() {
         rideManager.startRide()
+        if (::cameraModule.isInitialized) cameraModule.onRideStart()
         rideLogger.startLogging()
         tvTotalDist.text = "0.0km"
         tvRideTime.text = "00:00"
@@ -497,6 +514,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun stopRide() {
+        if (::cameraModule.isInitialized) cameraModule.onRideFinish()
         val logPath = rideLogger.stopLogging()
         logPath?.let {
             Toast.makeText(this, "로그 저장됨 📊", Toast.LENGTH_SHORT).show()
@@ -741,6 +759,12 @@ private fun updateFollowModeUI() {
             appLocationManager.startUpdates()
             moveToCurrentLocation()
         }
+        if (requestCode == REQUEST_CAMERA_PERMISSION &&
+            grantResults.isNotEmpty() &&
+            grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            setupCamera()
+        }
     }
 
     private fun copyMapFromAssets(fileName: String): File {
@@ -772,6 +796,7 @@ private fun updateFollowModeUI() {
     }
     override fun onDestroy() {
         super.onDestroy()
+        if (::cameraModule.isInitialized) cameraModule.release()
         timerHandler.removeCallbacks(timerRunnable)
         offRouteHandler.removeCallbacks(offRouteRunnable)
         // 주행 중 비정상 종료시 로그 자동 저장
@@ -783,4 +808,94 @@ private fun updateFollowModeUI() {
         AndroidGraphicFactory.clearResourceMemoryCache()
         milestoneHandler.removeCallbacksAndMessages(null)
     }
+    // ========== ON 블랙박스 모듈 — 제거 시 이 블록 삭제 ==========
+
+    private fun initCameraModule() {
+        if (!hasCameraPermission()) {
+            requestCameraPermission()
+            return
+        }
+        setupCamera()
+    }
+
+    private fun hasCameraPermission(): Boolean {
+        return androidx.core.app.ActivityCompat.checkSelfPermission(
+            this, android.Manifest.permission.CAMERA
+        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requestCameraPermission() {
+        androidx.core.app.ActivityCompat.requestPermissions(
+            this,
+            arrayOf(
+                android.Manifest.permission.CAMERA,
+                android.Manifest.permission.RECORD_AUDIO
+            ),
+            REQUEST_CAMERA_PERMISSION
+        )
+    }
+
+    private fun setupCamera() {
+        val previewView = findViewById<PreviewView>(R.id.cameraPreview)
+        val cameraContainer = findViewById<View>(R.id.cameraContainer)
+
+        cameraModule = CameraModule(this, this)
+
+        cameraModule.onStateChanged = { state ->
+            runOnUiThread {
+                when (state) {
+                    CameraModule.CameraState.READY -> {
+                        cameraContainer.visibility = View.VISIBLE
+                    }
+                    CameraModule.CameraState.RECORDING -> {
+                        cameraContainer.visibility = View.VISIBLE
+                        cameraContainer.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                    }
+                    CameraModule.CameraState.EVENT_SAVING -> {
+                        // Preview 테두리 빨간색
+                        cameraContainer.setBackgroundColor(
+                            android.graphics.Color.parseColor("#FFFF0000")
+                        )
+                    }
+                    CameraModule.CameraState.ERROR -> {
+                        cameraContainer.visibility = View.GONE
+                        android.util.Log.e("ON_Main", "카메라 오류 — 네비 계속 동작")
+                    }
+                    else -> {}
+                }
+            }
+        }
+
+        cameraModule.onEventTriggered = { eventType ->
+            android.util.Log.d("ON_Main", "이벤트: $eventType")
+        }
+
+        cameraModule.initialize(previewView)
+
+        // Preview 터치 → 전체화면 전환
+        previewView.setOnClickListener {
+            isCameraExpanded = !isCameraExpanded
+            val params = cameraContainer.layoutParams
+            if (isCameraExpanded) {
+                params.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                params.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+            } else {
+                params.width = (160 * resources.displayMetrics.density).toInt()
+                params.height = (120 * resources.displayMetrics.density).toInt()
+            }
+            cameraContainer.layoutParams = params
+        }
+
+        // 화면 5탭 → 수동 이벤트 트리거
+        findViewById<View>(android.R.id.content).setOnClickListener {
+            if (::cameraModule.isInitialized) cameraModule.onScreenTap()
+        }
+    }
+
+
+    companion object {
+        private const val REQUEST_CAMERA_PERMISSION = 1002
+    }
+
+    // ========== 블랙박스 모듈 끝 ==========
 }

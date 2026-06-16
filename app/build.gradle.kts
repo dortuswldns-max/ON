@@ -59,4 +59,11 @@ dependencies {
     implementation("androidx.core:core:1.13.1")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("com.google.android.material:material:1.9.0")
+
+// ON 블랙박스 모듈 — 제거 시 아래 4줄 삭제
+    implementation("androidx.camera:camera-core:1.3.1")
+    implementation("androidx.camera:camera-camera2:1.3.1")
+    implementation("androidx.camera:camera-lifecycle:1.3.1")
+    implementation("androidx.camera:camera-video:1.3.1")
+    implementation("androidx.camera:camera-view:1.3.1")
 }
