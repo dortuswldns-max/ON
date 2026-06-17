@@ -543,7 +543,19 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun stopRide() {
-        if (::cameraModule.isInitialized) cameraModule.onRideFinish()
+        if (::cameraModule.isInitialized) {
+            // 녹화 종료 → 저장 완료(READY) 콜백 → 화면 전환 순서 보장
+            cameraModule.onRideFinishComplete = {
+                cameraModule.onRideFinishComplete = null
+                finishRideUI()
+            }
+            cameraModule.onRideFinish()
+        } else {
+            finishRideUI()
+        }
+    }
+
+    private fun finishRideUI() {
         val logPath = rideLogger.stopLogging()
         logPath?.let {
             Toast.makeText(this, "로그 저장됨 📊", Toast.LENGTH_SHORT).show()
@@ -956,6 +968,13 @@ private fun updateFollowModeUI() {
             android.util.Log.d("ON_Main", "이벤트: $eventType")
             if (rideLogger.isActive) {
                 rideLogger.logEvent(eventType.name, rideManager.getElapsedSec())
+            }
+        }
+
+        cameraModule.onEventIgnored = { eventType ->
+            android.util.Log.d("ON_Main", "이벤트 중복 무시: $eventType (ALREADY_SAVING)")
+            if (rideLogger.isActive) {
+                rideLogger.logEvent("${eventType.name}|EVENT_SAVE_IGNORE|ALREADY_SAVING", rideManager.getElapsedSec())
             }
         }
 

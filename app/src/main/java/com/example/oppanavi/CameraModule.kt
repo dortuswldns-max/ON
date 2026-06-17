@@ -68,7 +68,7 @@ class CameraModule(
 
         // 이벤트 트리거 기준값
         const val DECEL_THRESHOLD_KMH = 3.0f       // 급감속 감지 기준 (km/h/s)
-        const val IMPACT_THRESHOLD_G = 4.0f         // 충격 감지 기준 (G)
+        const val IMPACT_THRESHOLD_G = 6.0f         // 충격 감지 기준 (G)
         const val MANUAL_TAP_COUNT = 5              // 수동 트리거 연속 탭 수
         const val MANUAL_TAP_WINDOW_MS = 2000L      // 연속 탭 인정 시간 (ms)
         const val VOLUME_LONG_PRESS_MS = 1000L      // 볼륨 버튼 장누름 기준 (ms)
@@ -119,6 +119,8 @@ class CameraModule(
     // 상태 변경 콜백 (MainActivity → UI 갱신용)
     var onStateChanged: ((CameraState) -> Unit)? = null
     var onEventTriggered: ((EventType) -> Unit)? = null
+    var onEventIgnored: ((EventType) -> Unit)? = null
+    var onRideFinishComplete: (() -> Unit)? = null
     var onError: ((String) -> Unit)? = null
 
     // ========== 내부 변수 ==========
@@ -155,6 +157,7 @@ class CameraModule(
     private var eventCount = 0
     private var dropCount = 0
     private val lastEventTimeMs = mutableMapOf<EventType, Long>()
+    private var postEventRunnable: Runnable? = null
 
     // 로그
     private val logSdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
@@ -286,7 +289,15 @@ class CameraModule(
         log("onRideFinish() — 순환버퍼 종료, ride_$rideStartTimestamp.mp4 저장 예정")
         isRiding = false
         unregisterSensorListener()
-        stopCurrentSegment()
+        if (activeRecording != null) {
+            stopCurrentSegment()
+            // 저장 완료 후 onRideFinishComplete는 Finalize 콜백에서 호출됨
+        } else {
+            saveRideVideo()
+            cleanupBuffer()
+            setState(CameraState.READY)
+            mainHandler.post { onRideFinishComplete?.invoke() }
+        }
     }
 
     /**
@@ -348,6 +359,7 @@ class CameraModule(
                                     saveRideVideo()
                                     cleanupBuffer()
                                     setState(CameraState.READY)
+                                    mainHandler.post { onRideFinishComplete?.invoke() }
                                 }
                             }
                         }
@@ -472,9 +484,18 @@ class CameraModule(
      * 이벤트 발생 — 버퍼 즉시 스냅샷(pre-event) + postDuration 후 post-event 세그먼트 병합 저장
      */
     fun triggerEvent(type: EventType) {
-        // EVENT_SAVING 중에도 다른 이벤트 타입은 허용 (쿨다운이 중복 방지)
         if (state != CameraState.RECORDING && state != CameraState.EVENT_SAVING) {
             log("triggerEvent($type) — 녹화 중 아님, 스킵")
+            return
+        }
+        // EVENT_SAVING 중 중복 이벤트 — 영상 신규 생성 없이 post-event 타이머만 리셋
+        if (state == CameraState.EVENT_SAVING) {
+            postEventRunnable?.let {
+                mainHandler.removeCallbacks(it)
+                mainHandler.postDelayed(it, EVENT_POST_AUTO_SEC * 1000L)
+                log("EVENT_SAVING 중 중복 이벤트($type) — 타이머 리셋 (+${EVENT_POST_AUTO_SEC}s), 영상 신규 생성 스킵")
+            }
+            onEventIgnored?.invoke(type)
             return
         }
         val now = System.currentTimeMillis()
@@ -505,7 +526,7 @@ class CameraModule(
         log("pre-event 스냅샷 ${preSnapshots.size}개 완료 (active 슬롯 제외)")
 
         // postDuration 후: 스냅샷(pre) + 이후 완료된 세그먼트(post) 병합 저장
-        mainHandler.postDelayed({
+        val runnable = Runnable {
             try {
                 // snapshotTime 이후에 finalize된 세그먼트 = post-event footage
                 val postSegs = bufferFiles
@@ -528,8 +549,11 @@ class CameraModule(
                 preSnapshots.forEach { it.delete() }
                 snapDir.delete()
             }
+            postEventRunnable = null
             if (isRiding) setState(CameraState.RECORDING)
-        }, postDuration * 1000L)
+        }
+        postEventRunnable = runnable
+        mainHandler.postDelayed(runnable, postDuration * 1000L)
 
         // 시각 피드백 종료 — EVENT_FEEDBACK_MS 후 RECORDING으로 전환
         mainHandler.postDelayed({
@@ -710,6 +734,8 @@ class CameraModule(
         unregisterSensorListener()
         stopCurrentSegment()
         mainHandler.removeCallbacksAndMessages(null)
+        postEventRunnable = null
+        onRideFinishComplete = null
         cameraExecutor.shutdown()
         cameraProvider?.unbindAll()
         cleanupBuffer()
