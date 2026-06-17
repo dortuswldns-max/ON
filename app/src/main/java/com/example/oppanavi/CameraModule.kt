@@ -158,6 +158,7 @@ class CameraModule(
     private var dropCount = 0
     private val lastEventTimeMs = mutableMapOf<EventType, Long>()
     private var postEventRunnable: Runnable? = null
+    private var pendingSnapDir: File? = null          // EVENT_SAVING 중 취소 시 정리용
 
     // 로그
     private val logSdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
@@ -289,6 +290,16 @@ class CameraModule(
         log("onRideFinish() — 순환버퍼 종료, ride_$rideStartTimestamp.mp4 저장 예정")
         isRiding = false
         unregisterSensorListener()
+
+        // EVENT_SAVING 중 종료: pending 이벤트 런어블 취소 + 스냅샷 디렉토리 정리
+        if (state == CameraState.EVENT_SAVING) {
+            postEventRunnable?.let { mainHandler.removeCallbacks(it) }
+            postEventRunnable = null
+            pendingSnapDir?.deleteRecursively()
+            pendingSnapDir = null
+            log("EVENT_SAVING 중 Ride Finish — 이벤트 런어블 취소, 스냅샷 정리 완료")
+        }
+
         if (activeRecording != null) {
             stopCurrentSegment()
             // 저장 완료 후 onRideFinishComplete는 Finalize 콜백에서 호출됨
@@ -318,8 +329,14 @@ class CameraModule(
 
     private fun startNextSegment() {
         if (!isRiding) return
+        if (activeRecording != null) {
+            log("startNextSegment() — 이미 녹화 중, 스킵")
+            return
+        }
         val vc = videoCapture ?: run {
-            handleError("videoCapture null — 세그먼트 시작 불가")
+            // 첫 실행 시 bindCamera()가 아직 완료되지 않은 경우 — ERROR 전환 없이 재시도
+            log("videoCapture null — 카메라 초기화 대기, 500ms 후 재시도")
+            mainHandler.postDelayed({ if (isRiding) startNextSegment() }, 500L)
             return
         }
 
@@ -341,11 +358,15 @@ class CameraModule(
                             log("세그먼트 #$slotIndex 녹화 시작")
                         }
                         is VideoRecordEvent.Finalize -> {
+                            activeRecording = null
                             if (event.hasError()) {
-                                // ERROR_SOURCE_INACTIVE(3): 파일 피커 등 라이프사이클 전환으로 인한 중단 — 치명적 오류 아님
                                 if (event.error == VideoRecordEvent.Finalize.ERROR_SOURCE_INACTIVE && isRiding) {
-                                    log("세그먼트 #$slotIndex 라이프사이클 중단(ERROR_SOURCE_INACTIVE) — READY 유지, 복귀 시 재시작")
+                                    // 첫 실행 카메라 워밍업 미완료 등 일시적 중단 — 500ms 후 자동 재시작
+                                    log("세그먼트 #$slotIndex ERROR_SOURCE_INACTIVE — 500ms 후 자동 재시작")
                                     setState(CameraState.READY)
+                                    mainHandler.postDelayed({
+                                        if (isRiding && state == CameraState.READY) startNextSegment()
+                                    }, 500L)
                                 } else {
                                     dropCount++
                                     handleError("세그먼트 #$slotIndex 오류: ${event.error}")
@@ -521,6 +542,7 @@ class CameraModule(
         // 이벤트 발생 즉시 완료된 버퍼 세그먼트 스냅샷 (pre-event footage 보존)
         // 현재 녹화 중인 슬롯은 finalize 전이라 불완전 → 제외하고 완료된 것만 복사
         val snapDir = File(bufferDir, "snap_$eventTime")
+        pendingSnapDir = snapDir
         val snapshotTime = System.currentTimeMillis()
         val preSnapshots = snapshotCompletedBuffers(snapDir)
         log("pre-event 스냅샷 ${preSnapshots.size}개 완료 (active 슬롯 제외)")
@@ -528,7 +550,6 @@ class CameraModule(
         // postDuration 후: 스냅샷(pre) + 이후 완료된 세그먼트(post) 병합 저장
         val runnable = Runnable {
             try {
-                // snapshotTime 이후에 finalize된 세그먼트 = post-event footage
                 val postSegs = bufferFiles
                     .filterNotNull()
                     .filter { it.exists() && it.length() > 0 && it.lastModified() > snapshotTime }
@@ -547,7 +568,8 @@ class CameraModule(
                 log("이벤트 클립 저장 예외: ${e.message}")
             } finally {
                 preSnapshots.forEach { it.delete() }
-                snapDir.delete()
+                snapDir.deleteRecursively()
+                pendingSnapDir = null
             }
             postEventRunnable = null
             if (isRiding) setState(CameraState.RECORDING)
