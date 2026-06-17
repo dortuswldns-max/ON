@@ -257,6 +257,17 @@ class CameraModule(
     }
 
     /**
+     * 앱이 foreground로 복귀 시 호출 (MainActivity.onResume)
+     * 라이프사이클 중단으로 녹화가 멈춘 경우 재시작
+     */
+    fun onAppResume() {
+        if (isRiding && state == CameraState.READY) {
+            log("앱 복귀 — 라이프사이클 중단된 녹화 재시작")
+            mainHandler.postDelayed({ startNextSegment() }, 300L)
+        }
+    }
+
+    /**
      * Ride Finish 시 호출 — 순환버퍼 정지, 마지막 세그먼트 Finalize 후 ride_*.mp4 저장
      */
     fun onRideFinish() {
@@ -308,7 +319,13 @@ class CameraModule(
                         }
                         is VideoRecordEvent.Finalize -> {
                             if (event.hasError()) {
-                                handleError("세그먼트 #$slotIndex 오류: ${event.error}")
+                                // ERROR_SOURCE_INACTIVE(3): 파일 피커 등 라이프사이클 전환으로 인한 중단 — 치명적 오류 아님
+                                if (event.error == VideoRecordEvent.Finalize.ERROR_SOURCE_INACTIVE && isRiding) {
+                                    log("세그먼트 #$slotIndex 라이프사이클 중단(ERROR_SOURCE_INACTIVE) — READY 유지, 복귀 시 재시작")
+                                    setState(CameraState.READY)
+                                } else {
+                                    handleError("세그먼트 #$slotIndex 오류: ${event.error}")
+                                }
                             } else {
                                 log("세그먼트 #$slotIndex 완료: ${file.length() / 1024}KB")
                                 if (isRiding) {

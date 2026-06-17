@@ -687,6 +687,7 @@ override fun onResume() {
     ) {
         appLocationManager.startUpdates()
     }
+    if (::cameraModule.isInitialized) cameraModule.onAppResume()
 }
 
 override fun onPause() {
