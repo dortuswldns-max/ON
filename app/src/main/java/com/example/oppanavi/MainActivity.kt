@@ -839,6 +839,7 @@ private fun updateFollowModeUI() {
     private fun setupCamera() {
         val previewView = findViewById<PreviewView>(R.id.cameraPreview)
         val cameraContainer = findViewById<View>(R.id.cameraContainer)
+        val tvCameraState = findViewById<android.widget.TextView>(R.id.tvCameraState)
 
         cameraModule = CameraModule(this, this)
 
@@ -847,16 +848,21 @@ private fun updateFollowModeUI() {
                 when (state) {
                     CameraModule.CameraState.READY -> {
                         cameraContainer.visibility = View.VISIBLE
+                        tvCameraState.text = "● REC"
+                        tvCameraState.setTextColor(android.graphics.Color.WHITE)
                     }
                     CameraModule.CameraState.RECORDING -> {
                         cameraContainer.visibility = View.VISIBLE
                         cameraContainer.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                        tvCameraState.text = "● REC"
+                        tvCameraState.setTextColor(android.graphics.Color.parseColor("#FF3333"))
                     }
                     CameraModule.CameraState.EVENT_SAVING -> {
-                        // Preview 테두리 빨간색
                         cameraContainer.setBackgroundColor(
                             android.graphics.Color.parseColor("#FFFF0000")
                         )
+                        tvCameraState.text = "● REC"
+                        tvCameraState.setTextColor(android.graphics.Color.parseColor("#FF3333"))
                     }
                     CameraModule.CameraState.ERROR -> {
                         cameraContainer.visibility = View.GONE

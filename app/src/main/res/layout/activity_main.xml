@@ -346,7 +346,7 @@
             android:textSize="8sp"
             android:textColor="#FFFFFF"
             android:background="#88000000"
-            android:text="●REC" />
+            android:text="● REC" />
     </FrameLayout>
 
 </FrameLayout>
