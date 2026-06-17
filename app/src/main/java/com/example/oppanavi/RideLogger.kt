@@ -30,7 +30,7 @@ class RideLogger(private val context: Context) {
 
     private val BASE_HEADER = "timestamp,elapsed_sec,speed_kmh,accuracy_m,provider," +
             "nearest_index,dist_to_route_m,is_off_route,off_route_count," +
-            "latitude,longitude"
+            "latitude,longitude,event_type"
 
     private val DEBUG_HEADER = "battery_temp,ram_mb,camera_state,frame_drop," +
             "segment_index,event_count,gps_satellites,buffer_size_kb"
@@ -80,6 +80,7 @@ class RideLogger(private val context: Context) {
                 "$isOffRoute,$offRouteCount," +
                 "${"%.6f".format(latitude)},${"%.6f".format(longitude)}"
 
+        // event_type은 일반 로그 행에서 공백, logEvent()에서만 채워짐
         val line = if (DEBUG_LOGGING) {
             val snap = cameraModule?.getStatusSnapshot()
             val batteryTemp = getBatteryTemp()
@@ -89,13 +90,31 @@ class RideLogger(private val context: Context) {
             val segIdx = snap?.segmentIndex ?: -1
             val evtCount = snap?.eventCount ?: -1
             val bufKb = snap?.bufferSizeKb ?: -1L
-            val satellites = gpsSatellites
-            "$base,${"%.1f".format(batteryTemp)},$ramMb,$cameraState,$dropCount," +
-                    "$segIdx,$evtCount,$satellites,$bufKb\n"
+            "$base,,${"%.1f".format(batteryTemp)},$ramMb,$cameraState,$dropCount," +
+                    "$segIdx,$evtCount,$gpsSatellites,$bufKb\n"
         } else {
-            "$base\n"
+            "$base,\n"
         }
 
+        try {
+            fileWriter?.write(line)
+            fileWriter?.flush()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
+     * 이벤트 발생 시 즉시 호출 — 해당 행에만 event_type 기록, 나머지 컬럼 공백
+     * timestamp와 elapsed_sec로 영상 파일(ride_YYYYMMDD_HHmmss.mp4) 내 재생 위치 계산 가능
+     *   예) 영상 시작 17:42:00, 이벤트 17:42:13 → 영상 13초 지점
+     */
+    fun logEvent(eventTypeName: String, elapsedSec: Long) {
+        if (!isLogging) return
+        val timestamp = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
+        // cols 3-11(speed~longitude) 공백 → elapsed_sec 뒤에 쉼표 10개로 9개 빈 컬럼 생성
+        val line = "$timestamp,$elapsedSec${",".repeat(10)}$eventTypeName" +
+                (if (DEBUG_LOGGING) ",".repeat(8) else "") + "\n"
         try {
             fileWriter?.write(line)
             fileWriter?.flush()

@@ -5,8 +5,12 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.media.MediaCodec
+import android.media.MediaExtractor
+import android.media.MediaMuxer
 import android.media.MediaRecorder
 import android.os.BatteryManager
+import java.nio.ByteBuffer
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -64,10 +68,15 @@ class CameraModule(
 
         // 이벤트 트리거 기준값
         const val DECEL_THRESHOLD_KMH = 3.0f       // 급감속 감지 기준 (km/h/s)
-        const val IMPACT_THRESHOLD_G = 2.5f         // 충격 감지 기준 (G)
+        const val IMPACT_THRESHOLD_G = 4.0f         // 충격 감지 기준 (G)
         const val MANUAL_TAP_COUNT = 5              // 수동 트리거 연속 탭 수
         const val MANUAL_TAP_WINDOW_MS = 2000L      // 연속 탭 인정 시간 (ms)
         const val VOLUME_LONG_PRESS_MS = 1000L      // 볼륨 버튼 장누름 기준 (ms)
+
+        // 동일 이벤트 타입 쿨다운 — 3초 내 재발생 무시 (센서 오발 방지)
+        const val EVENT_COOLDOWN_MS = 3000L
+        // 이벤트 발생 후 시각 피드백 지속 시간 (이 시간 후 RECORDING 복귀)
+        const val EVENT_FEEDBACK_MS = 3000L
 
         // 저장 경로
         const val DIR_ROOT = "ON"
@@ -145,6 +154,7 @@ class CameraModule(
     private var accelerometer: Sensor? = null
     private var eventCount = 0
     private var dropCount = 0
+    private val lastEventTimeMs = mutableMapOf<EventType, Long>()
 
     // 로그
     private val logSdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
@@ -375,25 +385,105 @@ class CameraModule(
 
     private fun saveRideVideo() {
         val dest = File(videoDir, "ride_$rideStartTimestamp.mp4")
-        val latest = bufferFiles.filterNotNull().filter { it.exists() }
-            .maxByOrNull { it.lastModified() }
-        latest?.let {
-            it.copyTo(dest, overwrite = true)
+        // lastModified 오름차순 = 녹화된 시간 순서 (순환 버퍼에서도 성립)
+        val segments = bufferFiles
+            .filterNotNull()
+            .filter { it.exists() && it.length() > 0 }
+            .sortedBy { it.lastModified() }
+
+        when {
+            segments.isEmpty() -> log("라이드 영상 저장 실패 — 버퍼 없음")
+            segments.size == 1 -> {
+                segments[0].copyTo(dest, overwrite = true)
+                rideVideoFile = dest
+                log("라이드 영상 저장(단일): ${dest.name} (${dest.length() / 1024}KB)")
+            }
+            else -> concatenateSegments(segments, dest)
+        }
+    }
+
+    /**
+     * 여러 MP4 세그먼트를 MediaMuxer로 이어붙여 하나의 파일로 저장.
+     * PTS 오프셋을 누적해서 재생 시간이 이어지도록 처리.
+     */
+    private fun concatenateSegments(segments: List<File>, dest: File) {
+        var muxer: MediaMuxer? = null
+        var muxerStarted = false
+        var muxerStopped = false
+        try {
+            muxer = MediaMuxer(dest.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+
+            // 첫 번째 세그먼트에서 트랙 구성
+            val probe = MediaExtractor()
+            probe.setDataSource(segments[0].absolutePath)
+            val trackCount = probe.trackCount
+            val muxerTrackIds = IntArray(trackCount) { i ->
+                muxer.addTrack(probe.getTrackFormat(i))
+            }
+            probe.release()
+
+            muxer.start()
+            muxerStarted = true
+
+            val buf = ByteBuffer.allocate(2 * 1024 * 1024)
+            val info = MediaCodec.BufferInfo()
+            var ptsOffsetUs = 0L
+
+            for (seg in segments) {
+                val extractor = MediaExtractor()
+                extractor.setDataSource(seg.absolutePath)
+                for (i in 0 until trackCount) extractor.selectTrack(i)
+
+                var maxPtsUs = 0L
+                while (true) {
+                    val track = extractor.sampleTrackIndex
+                    if (track < 0) break
+                    info.size = extractor.readSampleData(buf, 0)
+                    if (info.size < 0) break
+                    info.presentationTimeUs = extractor.sampleTime + ptsOffsetUs
+                    info.flags = extractor.sampleFlags
+                    if (track < trackCount) muxer.writeSampleData(muxerTrackIds[track], buf, info)
+                    if (info.presentationTimeUs > maxPtsUs) maxPtsUs = info.presentationTimeUs
+                    extractor.advance()
+                }
+                extractor.release()
+                // 다음 세그먼트 PTS를 현재 세그먼트 끝에 이어붙임 (~30fps 기준 1프레임 여유)
+                ptsOffsetUs = maxPtsUs + 33_333L
+            }
+
+            muxer.stop()
+            muxerStopped = true
             rideVideoFile = dest
-            log("라이드 영상 저장: ${dest.name} (${dest.length() / 1024}KB) → ${dest.absolutePath}")
-        } ?: log("라이드 영상 저장 실패 — 버퍼 없음")
+            log("라이드 영상 저장(${segments.size}개 병합): ${dest.name} (${dest.length() / 1024}KB)")
+
+        } catch (e: Exception) {
+            log("concatenateSegments() 실패: ${e.message} — 최신 세그먼트로 대체")
+            dest.delete()
+            try { segments.last().copyTo(dest, overwrite = true); rideVideoFile = dest } catch (_: Exception) {}
+        } finally {
+            if (muxerStarted && !muxerStopped) try { muxer?.stop() } catch (_: Exception) {}
+            try { muxer?.release() } catch (_: Exception) {}
+        }
     }
 
     // ========== 이벤트 트리거 ==========
 
     /**
-     * 이벤트 발생 — 현재 버퍼 보호 + 이후 영상 추가 저장
+     * 이벤트 발생 — 버퍼 즉시 스냅샷(pre-event) + postDuration 후 post-event 세그먼트 병합 저장
      */
     fun triggerEvent(type: EventType) {
-        if (state != CameraState.RECORDING) {
+        // EVENT_SAVING 중에도 다른 이벤트 타입은 허용 (쿨다운이 중복 방지)
+        if (state != CameraState.RECORDING && state != CameraState.EVENT_SAVING) {
             log("triggerEvent($type) — 녹화 중 아님, 스킵")
             return
         }
+        val now = System.currentTimeMillis()
+        val lastTime = lastEventTimeMs[type] ?: 0L
+        if (now - lastTime < EVENT_COOLDOWN_MS) {
+            log("triggerEvent($type) — 쿨다운 중 무시 (${now - lastTime}ms / ${EVENT_COOLDOWN_MS}ms)")
+            return
+        }
+        lastEventTimeMs[type] = now
         log("이벤트 트리거: $type")
         eventCount++
         setState(CameraState.EVENT_SAVING)
@@ -404,33 +494,67 @@ class CameraModule(
             else -> EVENT_POST_AUTO_SEC
         }
 
-        // 현재 버퍼 세그먼트 보호 후 이후 녹화 계속
         val eventTime = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val eventFile = File(eventDir, "event_${type.name}_$eventTime.mp4")
 
-        // postDuration 후 이벤트 영상 병합 저장
+        // 이벤트 발생 즉시 완료된 버퍼 세그먼트 스냅샷 (pre-event footage 보존)
+        // 현재 녹화 중인 슬롯은 finalize 전이라 불완전 → 제외하고 완료된 것만 복사
+        val snapDir = File(bufferDir, "snap_$eventTime")
+        val snapshotTime = System.currentTimeMillis()
+        val preSnapshots = snapshotCompletedBuffers(snapDir)
+        log("pre-event 스냅샷 ${preSnapshots.size}개 완료 (active 슬롯 제외)")
+
+        // postDuration 후: 스냅샷(pre) + 이후 완료된 세그먼트(post) 병합 저장
         mainHandler.postDelayed({
-            saveEventClip(type, eventFile, postDuration)
+            try {
+                // snapshotTime 이후에 finalize된 세그먼트 = post-event footage
+                val postSegs = bufferFiles
+                    .filterNotNull()
+                    .filter { it.exists() && it.length() > 0 && it.lastModified() > snapshotTime }
+                    .sortedBy { it.lastModified() }
+                val allSegs = preSnapshots + postSegs
+                when {
+                    allSegs.isEmpty() -> log("이벤트 클립 저장 실패 — 세그먼트 없음")
+                    allSegs.size == 1 -> {
+                        allSegs[0].copyTo(eventFile, overwrite = true)
+                        log("이벤트 클립 저장(단일): ${eventFile.name} (${eventFile.length() / 1024}KB)")
+                    }
+                    else -> concatenateSegments(allSegs, eventFile)
+                }
+                log("이벤트 클립: pre=${preSnapshots.size} post=${postSegs.size} → ${eventFile.name}")
+            } catch (e: Exception) {
+                log("이벤트 클립 저장 예외: ${e.message}")
+            } finally {
+                preSnapshots.forEach { it.delete() }
+                snapDir.delete()
+            }
+            if (isRiding) setState(CameraState.RECORDING)
         }, postDuration * 1000L)
 
-        // 녹화는 계속
-        setState(CameraState.RECORDING)
+        // 시각 피드백 종료 — EVENT_FEEDBACK_MS 후 RECORDING으로 전환
+        mainHandler.postDelayed({
+            if (state == CameraState.EVENT_SAVING) setState(CameraState.RECORDING)
+        }, EVENT_FEEDBACK_MS)
+
         manageEventFiles()
     }
 
-    private fun saveEventClip(type: EventType, dest: File, postSec: Int) {
-        try {
-            val oldest = bufferFiles
-                .filterNotNull()
-                .filter { it.exists() }
-                .minByOrNull { it.lastModified() }
-            oldest?.let {
-                it.copyTo(dest, overwrite = true)
-                log("이벤트 클립 저장: ${dest.name} (${dest.length() / 1024}KB)")
-            } ?: log("이벤트 저장 실패 — 버퍼 없음")
-        } catch (e: Exception) {
-            log("saveEventClip() 예외: ${e.message}")
-        }
+    /**
+     * 완료된 버퍼 세그먼트만 스냅샷 복사.
+     * 현재 녹화 중인 슬롯(activeSlot)은 finalize 전이라 불완전한 MP4이므로 제외.
+     */
+    private fun snapshotCompletedBuffers(snapDir: File): List<File> {
+        snapDir.mkdirs()
+        val activeFile = bufferFiles[bufferIndex % BUFFER_SEGMENT_COUNT]
+        return bufferFiles
+            .filterNotNull()
+            .filter { it !== activeFile && it.exists() && it.length() > 0 }
+            .sortedBy { it.lastModified() }
+            .mapIndexedNotNull { i, src ->
+                val dst = File(snapDir, "pre_$i.mp4")
+                try { src.copyTo(dst, overwrite = true); dst }
+                catch (e: Exception) { log("스냅샷 복사 실패 ${src.name}: ${e.message}"); null }
+            }
     }
 
     /**

@@ -16,6 +16,8 @@ import android.location.Location
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.Button
@@ -80,9 +82,27 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var mapManager: MapManager
     private lateinit var rideLogger: RideLogger
 
-    // ON 블랙박스 모듈 — 제거 시 아래 2줄 삭제
+    // ON 블랙박스 모듈 — 제거 시 아래 블록 삭제
     private lateinit var cameraModule: CameraModule
     private var isCameraExpanded = false
+    private lateinit var cameraContainer: View
+    private lateinit var tvCameraState: android.widget.TextView
+
+    // PIP 2초 길게 누르기 → MANUAL_TAP
+    private val pipLongPressHandler = Handler(Looper.getMainLooper())
+    private var pipLongPressTriggered = false
+    private val PIP_LONG_PRESS_MS = 2000L
+
+    // 볼륨Up 2초 내 3연타 → MANUAL_VOLUME
+    private var volumeUpPressCount = 0
+    private var volumeUpFirstPressTime = 0L
+    private val VOLUME_UP_TRIGGER_COUNT = 3
+    private val VOLUME_UP_WINDOW_MS = 2000L
+
+    // 이벤트 시각 피드백 — 빨간 테두리 + "⚠ EVENT" 깜빡임
+    private val eventBlinkHandler = Handler(Looper.getMainLooper())
+    private var eventBlinkRunnable: Runnable? = null
+    private var eventBlinkOn = false
 
     private lateinit var tvMilestone: TextView
     private var lastLatLong: LatLong? = null
@@ -335,28 +355,17 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             tvPauseStatus.text = ""
         }
 
+        // GPX 진행 업데이트 — 경로 없을 때는 기본값 사용
+        var gpxNearestIdx = -1
+        var gpxDistToRoute = -1.0
+        var gpxIsOffRoute = false
         if (gpxManager.hasRoute) {
             val info = gpxManager.updateProgress(latLong)
+            gpxNearestIdx = info.nearestIdx
+            gpxDistToRoute = info.distToRoute
+            gpxIsOffRoute = info.isOffRoute
             tvGpxProgress.text = "${info.progressPct}%"
             tvGpxRemain.text = "남은 ${info.remainKm}km"
-
-            // 로그 기록
-            if (rideLogger.isActive) {
-                val gpsSatellites = location.extras?.getInt("satellites", -1) ?: -1
-                rideLogger.log(
-                    elapsedSec = rideManager.getElapsedSec(),
-                    speedKmh = currentSpeedKmh,
-                    accuracyM = currentAccuracy,
-                    provider = currentProvider,
-                    nearestIndex = info.nearestIdx,
-                    distToRouteM = info.distToRoute,
-                    isOffRoute = info.isOffRoute,
-                    offRouteCount = 0,
-                    latitude = latLong.latitude,
-                    longitude = latLong.longitude,
-                    gpsSatellites = gpsSatellites
-                )
-            }
 
             if (info.isOffRoute) {
                 if (offRouteStartTime == 0L) {
@@ -372,6 +381,24 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                 }
                 tvOffRoute.visibility = View.GONE
             }
+        }
+
+        // 주행 로그 — GPX 유무와 무관하게 1초마다 기록
+        if (rideLogger.isActive) {
+            val gpsSatellites = location.extras?.getInt("satellites", -1) ?: -1
+            rideLogger.log(
+                elapsedSec = rideManager.getElapsedSec(),
+                speedKmh = currentSpeedKmh,
+                accuracyM = currentAccuracy,
+                provider = currentProvider,
+                nearestIndex = gpxNearestIdx,
+                distToRouteM = gpxDistToRoute,
+                isOffRoute = gpxIsOffRoute,
+                offRouteCount = 0,
+                latitude = latLong.latitude,
+                longitude = latLong.longitude,
+                gpsSatellites = gpsSatellites
+            )
         }
     }
 
@@ -797,11 +824,63 @@ private fun updateFollowModeUI() {
             }
         )
     }
+    private fun startEventBlink() {
+        stopEventBlink()
+        val borderPx = (3 * resources.displayMetrics.density).toInt()
+        cameraContainer.setPadding(borderPx, borderPx, borderPx, borderPx)
+        cameraContainer.setBackgroundColor(android.graphics.Color.RED)
+        eventBlinkOn = true
+        eventBlinkRunnable = object : Runnable {
+            override fun run() {
+                eventBlinkOn = !eventBlinkOn
+                tvCameraState.text = "⚠ EVENT"
+                tvCameraState.alpha = if (eventBlinkOn) 1f else 0f
+                tvCameraState.setTextColor(android.graphics.Color.RED)
+                eventBlinkHandler.postDelayed(this, 500L)
+            }
+        }
+        eventBlinkHandler.post(eventBlinkRunnable!!)
+    }
+
+    private fun stopEventBlink() {
+        eventBlinkRunnable?.let { eventBlinkHandler.removeCallbacks(it) }
+        eventBlinkRunnable = null
+        if (::cameraContainer.isInitialized) {
+            cameraContainer.setPadding(0, 0, 0, 0)
+            cameraContainer.setBackgroundColor(android.graphics.Color.BLACK)
+        }
+        if (::tvCameraState.isInitialized) {
+            tvCameraState.alpha = 1f
+        }
+    }
+
+    // 볼륨Up 2초 내 3연타 → MANUAL_VOLUME 이벤트 (볼륨 정상 조절 유지)
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP && event.repeatCount == 0) {
+            val now = System.currentTimeMillis()
+            if (now - volumeUpFirstPressTime > VOLUME_UP_WINDOW_MS) {
+                volumeUpPressCount = 1
+                volumeUpFirstPressTime = now
+            } else {
+                volumeUpPressCount++
+            }
+            if (volumeUpPressCount >= VOLUME_UP_TRIGGER_COUNT) {
+                volumeUpPressCount = 0
+                if (::cameraModule.isInitialized) {
+                    cameraModule.triggerEvent(CameraModule.EventType.MANUAL_VOLUME)
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         if (::cameraModule.isInitialized) cameraModule.release()
         timerHandler.removeCallbacks(timerRunnable)
         offRouteHandler.removeCallbacks(offRouteRunnable)
+        pipLongPressHandler.removeCallbacksAndMessages(null)
+        eventBlinkHandler.removeCallbacksAndMessages(null)
         // 주행 중 비정상 종료시 로그 자동 저장
         if (rideLogger.isActive) {
             rideLogger.stopLogging()
@@ -840,8 +919,8 @@ private fun updateFollowModeUI() {
 
     private fun setupCamera() {
         val previewView = findViewById<PreviewView>(R.id.cameraPreview)
-        val cameraContainer = findViewById<View>(R.id.cameraContainer)
-        val tvCameraState = findViewById<android.widget.TextView>(R.id.tvCameraState)
+        cameraContainer = findViewById(R.id.cameraContainer)
+        tvCameraState = findViewById(R.id.tvCameraState)
 
         cameraModule = CameraModule(this, this)
 
@@ -849,24 +928,22 @@ private fun updateFollowModeUI() {
             runOnUiThread {
                 when (state) {
                     CameraModule.CameraState.READY -> {
+                        stopEventBlink()
                         cameraContainer.visibility = View.VISIBLE
                         tvCameraState.text = "● REC"
                         tvCameraState.setTextColor(android.graphics.Color.WHITE)
                     }
                     CameraModule.CameraState.RECORDING -> {
+                        stopEventBlink()
                         cameraContainer.visibility = View.VISIBLE
-                        cameraContainer.setBackgroundColor(android.graphics.Color.TRANSPARENT)
                         tvCameraState.text = "● REC"
                         tvCameraState.setTextColor(android.graphics.Color.parseColor("#FF3333"))
                     }
                     CameraModule.CameraState.EVENT_SAVING -> {
-                        cameraContainer.setBackgroundColor(
-                            android.graphics.Color.parseColor("#FFFF0000")
-                        )
-                        tvCameraState.text = "● REC"
-                        tvCameraState.setTextColor(android.graphics.Color.parseColor("#FF3333"))
+                        startEventBlink()
                     }
                     CameraModule.CameraState.ERROR -> {
+                        stopEventBlink()
                         cameraContainer.visibility = View.GONE
                         android.util.Log.e("ON_Main", "카메라 오류 — 네비 계속 동작")
                     }
@@ -877,28 +954,50 @@ private fun updateFollowModeUI() {
 
         cameraModule.onEventTriggered = { eventType ->
             android.util.Log.d("ON_Main", "이벤트: $eventType")
+            if (rideLogger.isActive) {
+                rideLogger.logEvent(eventType.name, rideManager.getElapsedSec())
+            }
         }
 
         cameraModule.initialize(previewView)
         rideLogger.setCameraModule(cameraModule)
 
-        // Preview 터치 → 전체화면 전환
-        previewView.setOnClickListener {
-            isCameraExpanded = !isCameraExpanded
-            val params = cameraContainer.layoutParams
-            if (isCameraExpanded) {
-                params.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                params.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-            } else {
-                params.width = (160 * resources.displayMetrics.density).toInt()
-                params.height = (120 * resources.displayMetrics.density).toInt()
+        // PIP 터치: 짧은 탭 → 전체화면 전환 / 2초 길게 누르기 → MANUAL_TAP 이벤트
+        previewView.setOnTouchListener { _, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    pipLongPressTriggered = false
+                    pipLongPressHandler.postDelayed({
+                        pipLongPressTriggered = true
+                        if (::cameraModule.isInitialized) {
+                            cameraModule.triggerEvent(CameraModule.EventType.MANUAL_TAP)
+                        }
+                    }, PIP_LONG_PRESS_MS)
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    pipLongPressHandler.removeCallbacksAndMessages(null)
+                    if (!pipLongPressTriggered) {
+                        isCameraExpanded = !isCameraExpanded
+                        val params = cameraContainer.layoutParams
+                        if (isCameraExpanded) {
+                            params.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                            params.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        } else {
+                            params.width = (160 * resources.displayMetrics.density).toInt()
+                            params.height = (120 * resources.displayMetrics.density).toInt()
+                        }
+                        cameraContainer.layoutParams = params
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    pipLongPressHandler.removeCallbacksAndMessages(null)
+                    pipLongPressTriggered = false
+                    true
+                }
+                else -> false
             }
-            cameraContainer.layoutParams = params
-        }
-
-        // 화면 5탭 → 수동 이벤트 트리거
-        findViewById<View>(android.R.id.content).setOnClickListener {
-            if (::cameraModule.isInitialized) cameraModule.onScreenTap()
         }
     }
 
