@@ -1,6 +1,9 @@
 package com.example.oppanavi
 
 import android.content.Context
+import android.content.IntentFilter
+import android.content.Intent
+import android.os.BatteryManager
 import java.io.File
 import java.io.FileWriter
 import java.text.SimpleDateFormat
@@ -9,29 +12,40 @@ import java.util.Locale
 
 class RideLogger(private val context: Context) {
 
+    companion object {
+        const val DEBUG_LOGGING = true
+    }
+
     private var fileWriter: FileWriter? = null
     private var logFile: File? = null
     private var isLogging = false
     private var lastUpdateTime = 0L
-    private val UPDATE_INTERVAL_MS = 1000L  // 1초마다 기록
+    private val UPDATE_INTERVAL_MS = 1000L
 
-    // CSV 헤더
-    private val CSV_HEADER = "timestamp,elapsed_sec,speed_kmh,accuracy_m,provider," +
+    private var cameraModule: CameraModule? = null
+
+    fun setCameraModule(module: CameraModule) {
+        cameraModule = module
+    }
+
+    private val BASE_HEADER = "timestamp,elapsed_sec,speed_kmh,accuracy_m,provider," +
             "nearest_index,dist_to_route_m,is_off_route,off_route_count," +
-            "latitude,longitude\n"
+            "latitude,longitude"
+
+    private val DEBUG_HEADER = "battery_temp,ram_mb,camera_state,frame_drop," +
+            "segment_index,event_count,gps_satellites,buffer_size_kb"
+
+    private val CSV_HEADER get() =
+        if (DEBUG_LOGGING) "$BASE_HEADER,$DEBUG_HEADER\n" else "$BASE_HEADER\n"
 
     fun startLogging() {
         if (isLogging) return
 
-        val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault())
-            .format(Date())
-        val fileName = "ride_log_$dateStr.csv"
-
-        // 외부 저장소 없어도 되는 내부 저장소 사용
+        val dateStr = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date())
         val logDir = File(context.filesDir, "ride_logs")
         if (!logDir.exists()) logDir.mkdirs()
 
-        logFile = File(logDir, fileName)
+        logFile = File(logDir, "ride_log_$dateStr.csv")
         fileWriter = FileWriter(logFile, true)
         fileWriter?.write(CSV_HEADER)
         fileWriter?.flush()
@@ -50,21 +64,37 @@ class RideLogger(private val context: Context) {
         isOffRoute: Boolean,
         offRouteCount: Int,
         latitude: Double,
-        longitude: Double
+        longitude: Double,
+        gpsSatellites: Int = -1,
+        frameDrop: Int = 0
     ) {
         if (!isLogging) return
-
         val now = System.currentTimeMillis()
         if (now - lastUpdateTime < UPDATE_INTERVAL_MS) return
         lastUpdateTime = now
 
         val timestamp = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date())
-
-        val line = "$timestamp,$elapsedSec,$speedKmh," +
+        val base = "$timestamp,$elapsedSec,$speedKmh," +
                 "${"%.1f".format(accuracyM)},$provider," +
                 "$nearestIndex,${"%.1f".format(distToRouteM)}," +
                 "$isOffRoute,$offRouteCount," +
-                "${"%.6f".format(latitude)},${"%.6f".format(longitude)}\n"
+                "${"%.6f".format(latitude)},${"%.6f".format(longitude)}"
+
+        val line = if (DEBUG_LOGGING) {
+            val snap = cameraModule?.getStatusSnapshot()
+            val batteryTemp = getBatteryTemp()
+            val ramMb = snap?.ramUsageMb ?: -1L
+            val cameraState = snap?.state ?: "N/A"
+            val dropCount = snap?.frameDrop ?: frameDrop
+            val segIdx = snap?.segmentIndex ?: -1
+            val evtCount = snap?.eventCount ?: -1
+            val bufKb = snap?.bufferSizeKb ?: -1L
+            val satellites = gpsSatellites
+            "$base,${"%.1f".format(batteryTemp)},$ramMb,$cameraState,$dropCount," +
+                    "$segIdx,$evtCount,$satellites,$bufKb\n"
+        } else {
+            "$base\n"
+        }
 
         try {
             fileWriter?.write(line)
@@ -74,18 +104,21 @@ class RideLogger(private val context: Context) {
         }
     }
 
+    private fun getBatteryTemp(): Float {
+        return try {
+            val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+            val raw = intent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
+            if (raw == null || raw == Int.MIN_VALUE) -1f else raw / 10.0f
+        } catch (e: Exception) {
+            -1f
+        }
+    }
+
     fun stopLogging(): String? {
         if (!isLogging) return null
-
-        try {
-            fileWriter?.close()
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
+        try { fileWriter?.close() } catch (e: Exception) { e.printStackTrace() }
         fileWriter = null
         isLogging = false
-
         return logFile?.absolutePath
     }
 
@@ -99,9 +132,7 @@ class RideLogger(private val context: Context) {
         } else emptyList()
     }
 
-    fun deleteLogFile(file: File): Boolean {
-        return file.delete()
-    }
+    fun deleteLogFile(file: File): Boolean = file.delete()
 
     val isActive get() = isLogging
 }

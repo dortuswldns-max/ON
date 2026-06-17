@@ -342,6 +342,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
             // 로그 기록
             if (rideLogger.isActive) {
+                val gpsSatellites = location.extras?.getInt("satellites", -1) ?: -1
                 rideLogger.log(
                     elapsedSec = rideManager.getElapsedSec(),
                     speedKmh = currentSpeedKmh,
@@ -352,7 +353,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     isOffRoute = info.isOffRoute,
                     offRouteCount = 0,
                     latitude = latLong.latitude,
-                    longitude = latLong.longitude
+                    longitude = latLong.longitude,
+                    gpsSatellites = gpsSatellites
                 )
             }
 
@@ -878,6 +880,7 @@ private fun updateFollowModeUI() {
         }
 
         cameraModule.initialize(previewView)
+        rideLogger.setCameraModule(cameraModule)
 
         // Preview 터치 → 전체화면 전환
         previewView.setOnClickListener {

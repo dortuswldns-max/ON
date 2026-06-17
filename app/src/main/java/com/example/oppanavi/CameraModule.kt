@@ -143,6 +143,8 @@ class CameraModule(
     private var lastTapTime = 0L
     private var sensorManager: SensorManager? = null
     private var accelerometer: Sensor? = null
+    private var eventCount = 0
+    private var dropCount = 0
 
     // 로그
     private val logSdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
@@ -324,6 +326,7 @@ class CameraModule(
                                     log("세그먼트 #$slotIndex 라이프사이클 중단(ERROR_SOURCE_INACTIVE) — READY 유지, 복귀 시 재시작")
                                     setState(CameraState.READY)
                                 } else {
+                                    dropCount++
                                     handleError("세그먼트 #$slotIndex 오류: ${event.error}")
                                 }
                             } else {
@@ -392,6 +395,7 @@ class CameraModule(
             return
         }
         log("이벤트 트리거: $type")
+        eventCount++
         setState(CameraState.EVENT_SAVING)
         onEventTriggered?.invoke(type)
 
@@ -526,10 +530,15 @@ class CameraModule(
      * 로그용 상태 스냅샷 — RideLogger에서 1초마다 호출
      */
     fun getStatusSnapshot(): CameraStatus {
+        val bufferSizeKb = bufferFiles.filterNotNull().filter { it.exists() }.sumOf { it.length() / 1024 }
         return CameraStatus(
             state = state.name,
             isRecording = state == CameraState.RECORDING || state == CameraState.EVENT_SAVING,
             bufferSegmentCount = bufferFiles.count { it?.exists() == true },
+            bufferSizeKb = bufferSizeKb,
+            segmentIndex = bufferIndex % BUFFER_SEGMENT_COUNT,
+            eventCount = eventCount,
+            frameDrop = dropCount,
             ramUsageMb = getRamUsageMb()
         )
     }
@@ -538,6 +547,10 @@ class CameraModule(
         val state: String,
         val isRecording: Boolean,
         val bufferSegmentCount: Int,
+        val bufferSizeKb: Long,
+        val segmentIndex: Int,
+        val eventCount: Int,
+        val frameDrop: Int,
         val ramUsageMb: Long
     )
 
