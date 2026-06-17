@@ -316,7 +316,8 @@ class CameraModule(
      * MainActivity에서 GPS 속도 업데이트 시 호출
      */
     fun updateSpeed(speedKmh: Float) {
-        if (!isRiding || state != CameraState.RECORDING) return
+        if (!isRiding) return
+        if (state != CameraState.RECORDING && state != CameraState.EVENT_SAVING) return
         val delta = lastSpeed - speedKmh
         if (delta >= DECEL_THRESHOLD_KMH) {
             log("급감속 감지: ${lastSpeed} → ${speedKmh} km/h (Δ${delta})")
@@ -650,7 +651,8 @@ class CameraModule(
     override fun onSensorChanged(event: SensorEvent?) {
         event ?: return
         if (event.sensor.type != Sensor.TYPE_ACCELEROMETER) return
-        if (!isRiding || state != CameraState.RECORDING) return
+        if (!isRiding) return
+        if (state != CameraState.RECORDING && state != CameraState.EVENT_SAVING) return
 
         val x = event.values[0]
         val y = event.values[1]
