@@ -75,6 +75,8 @@ class CameraModule(
 
         // 동일 이벤트 타입 쿨다운 — 3초 내 재발생 무시 (센서 오발 방지)
         const val EVENT_COOLDOWN_MS = 3000L
+        // EVENT_SAVING 중 IMPACT 스로틀링 — 진입 후 30초 이내 재발생 무시
+        const val EVENT_SAVING_IMPACT_THROTTLE_MS = 30_000L
         // 이벤트 발생 후 시각 피드백 지속 시간 (이 시간 후 RECORDING 복귀)
         const val EVENT_FEEDBACK_MS = 3000L
 
@@ -120,6 +122,7 @@ class CameraModule(
     var onStateChanged: ((CameraState) -> Unit)? = null
     var onEventTriggered: ((EventType) -> Unit)? = null
     var onEventIgnored: ((EventType) -> Unit)? = null
+    var onEventSaveEnd: ((ignoreCount: Int) -> Unit)? = null
     var onRideFinishComplete: (() -> Unit)? = null
     var onError: ((String) -> Unit)? = null
 
@@ -159,6 +162,8 @@ class CameraModule(
     private val lastEventTimeMs = mutableMapOf<EventType, Long>()
     private var postEventRunnable: Runnable? = null
     private var pendingSnapDir: File? = null          // EVENT_SAVING 중 취소 시 정리용
+    private var eventSavingEntryTimeMs = 0L           // EVENT_SAVING 진입 시각 (IMPACT 스로틀링용)
+    private var ignoreCount = 0                       // EVENT_SAVING 중 무시된 이벤트 누적 수
 
     // 로그
     private val logSdf = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())
@@ -371,6 +376,7 @@ class CameraModule(
                                 } else {
                                     dropCount++
                                     handleError("세그먼트 #$slotIndex 오류: ${event.error}")
+                                    if (!isRiding) mainHandler.post { onRideFinishComplete?.invoke() }
                                 }
                             } else {
                                 log("세그먼트 #$slotIndex 완료: ${file.length() / 1024}KB")
@@ -510,8 +516,15 @@ class CameraModule(
             log("triggerEvent($type) — 녹화 중 아님, 스킵")
             return
         }
-        // EVENT_SAVING 중 중복 이벤트 — 영상 신규 생성 없이 post-event 타이머만 리셋
+        // EVENT_SAVING 중 중복 이벤트 처리
         if (state == CameraState.EVENT_SAVING) {
+            // IMPACT: 진입 후 30초 이내 → ignoreCount 누적 후 완전 무시 (타이머 리셋 없음)
+            if (type == EventType.IMPACT &&
+                System.currentTimeMillis() - eventSavingEntryTimeMs < EVENT_SAVING_IMPACT_THROTTLE_MS) {
+                ignoreCount++
+                return
+            }
+            // 그 외 이벤트 또는 30초 초과 IMPACT → 타이머 리셋
             postEventRunnable?.let {
                 mainHandler.removeCallbacks(it)
                 mainHandler.postDelayed(it, EVENT_POST_AUTO_SEC * 1000L)
@@ -573,7 +586,9 @@ class CameraModule(
                 pendingSnapDir = null
             }
             postEventRunnable = null
+            val savedIgnoreCount = ignoreCount
             if (isRiding) setState(CameraState.RECORDING)
+            mainHandler.post { onEventSaveEnd?.invoke(savedIgnoreCount) }
         }
         postEventRunnable = runnable
         mainHandler.postDelayed(runnable, postDuration * 1000L)
@@ -731,6 +746,10 @@ class CameraModule(
     private fun setState(newState: CameraState) {
         if (state != newState) {
             log("상태 변경: $state → $newState")
+            if (newState == CameraState.EVENT_SAVING) {
+                eventSavingEntryTimeMs = System.currentTimeMillis()
+                ignoreCount = 0
+            }
             state = newState
             mainHandler.post { onStateChanged?.invoke(newState) }
         }

@@ -35,6 +35,17 @@ android {
     buildFeatures {
         compose = true
     }
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/DEPENDENCIES"
+            )
+        }
+    }
 }
 
 dependencies {
@@ -59,6 +70,15 @@ dependencies {
     implementation("androidx.core:core:1.13.1")
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("com.google.android.material:material:1.9.0")
+
+// GraphHopper 경로 탐색 모듈
+    implementation("com.graphhopper:graphhopper-core:0.13.0") {
+        exclude(group = "org.slf4j", module = "slf4j-simple")
+    }
+    implementation("com.graphhopper:graphhopper-reader-osm:0.13.0") {
+        exclude(group = "org.slf4j", module = "slf4j-simple")
+    }
+    implementation("org.slf4j:slf4j-android:1.7.36")
 
 // ON 블랙박스 모듈 — 제거 시 아래 4줄 삭제
     implementation("androidx.camera:camera-core:1.3.1")

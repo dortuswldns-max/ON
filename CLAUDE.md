@@ -2,11 +2,13 @@
 
 ## 환경 경로
 
-| 항목 | 경로 |
-|------|------|
-| JAVA_HOME | `C:\Program Files\Eclipse Adoptium\jdk-25.0.3.9-hotspot` |
-| ANDROID_HOME | `C:\Users\USER\AppData\Local\Android\Sdk` |
-| adb | `C:\Users\USER\AppData\Local\Android\Sdk\platform-tools\adb.exe` |
+2곳(집/사무실)에서 작업하므로 adb 실행 전 존재하는 경로를 확인 후 사용할 것.
+
+| 항목 | 집 (사무실) | 집 |
+|------|------------|-----|
+| ANDROID_HOME | `C:\Android\Sdk` | `C:\Users\USER\AppData\Local\Android\Sdk` |
+| adb | `C:\Android\Sdk\platform-tools\adb.exe` | `C:\Users\USER\AppData\Local\Android\Sdk\platform-tools\adb.exe` |
+| JAVA_HOME | `C:\Program Files\Eclipse Adoptium\jdk-25.0.3.9-hotspot` | (동일) |
 
 ## 빌드 고정값
 
@@ -59,10 +61,15 @@ D:\OppaNavi\
 
 ## adb 명령 예시
 
+adb 경로는 환경에 따라 다르므로 아래 스크립트로 자동 탐색:
+
 ```powershell
+# adb 경로 자동 탐색 (집/사무실 공통)
+$adb = @("C:\Android\Sdk\platform-tools\adb.exe", "$env:LOCALAPPDATA\Android\Sdk\platform-tools\adb.exe") | Where-Object { Test-Path $_ } | Select-Object -First 1
+
 # 장치 연결 확인
-& "C:\Users\USER\AppData\Local\Android\Sdk\platform-tools\adb.exe" devices
+& $adb devices
 
 # 앱 로그 확인
-& "C:\Users\USER\AppData\Local\Android\Sdk\platform-tools\adb.exe" logcat -s OppaNavi
+& $adb logcat -s OppaNavi
 ```

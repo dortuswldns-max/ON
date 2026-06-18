@@ -1,4 +1,4 @@
-package com.example.oppanavi
+﻿package com.example.oppanavi
 
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -81,6 +81,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var appLocationManager: AppLocationManager
     private lateinit var mapManager: MapManager
     private lateinit var rideLogger: RideLogger
+
+    // GraphHopper 경로 탐색 모듈
+    private var graphHopperModule: GraphHopperModule? = null
 
     // ON 블랙박스 모듈 — 제거 시 아래 블록 삭제
     private lateinit var cameraModule: CameraModule
@@ -505,6 +508,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
 
         btnFinish.setOnClickListener {
+            rideLogger.logEvent("RIDE_FINISH_REQUEST", rideManager.getElapsedSec())
+            android.util.Log.d("ON_Finish", "RIDE_FINISH_REQUEST")
             pauseRide()
             rideManager.showFinishDialog(
                 onStop = { stopRide() },
@@ -517,6 +522,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     private fun startRide() {
         rideManager.startRide()
+        initGraphHopper()
         if (::cameraModule.isInitialized) cameraModule.onRideStart()
         rideLogger.startLogging()
         tvTotalDist.text = "0.0km"
@@ -543,19 +549,29 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     }
 
     private fun stopRide() {
+        rideLogger.logEvent("RIDE_FINISH_START", rideManager.getElapsedSec())
+        android.util.Log.d("ON_Finish", "RIDE_FINISH_START")
         if (::cameraModule.isInitialized) {
+            isFinalizingRide = true
             // 녹화 종료 → 저장 완료(READY) 콜백 → 화면 전환 순서 보장
             cameraModule.onRideFinishComplete = {
                 cameraModule.onRideFinishComplete = null
+                isFinalizingRide = false
+                rideLogger.logEvent("CAMERA_RELEASE", rideManager.getElapsedSec())
+                android.util.Log.d("ON_Finish", "CAMERA_RELEASE")
                 finishRideUI()
             }
             cameraModule.onRideFinish()
         } else {
+            rideLogger.logEvent("CAMERA_RELEASE", rideManager.getElapsedSec())
+            android.util.Log.d("ON_Finish", "CAMERA_RELEASE (no camera)")
             finishRideUI()
         }
     }
 
     private fun finishRideUI() {
+        rideLogger.logEvent("FINALIZE_DONE", rideManager.getElapsedSec())
+        android.util.Log.d("ON_Finish", "FINALIZE_DONE")
         val logPath = rideLogger.stopLogging()
         logPath?.let {
             Toast.makeText(this, "로그 저장됨 📊", Toast.LENGTH_SHORT).show()
@@ -821,11 +837,16 @@ private fun updateFollowModeUI() {
         return outFile
     }
     private var backPressedTime = 0L
+    private var isFinalizingRide = false
 
     init {
         onBackPressedDispatcher.addCallback(this,
             object : androidx.activity.OnBackPressedCallback(true) {
                 override fun handleOnBackPressed() {
+                    if (isFinalizingRide) {
+                        Toast.makeText(this@MainActivity, "영상 저장 중...", Toast.LENGTH_SHORT).show()
+                        return
+                    }
                     if (System.currentTimeMillis() - backPressedTime < 2000) {
                         finish()
                     } else {
@@ -888,6 +909,7 @@ private fun updateFollowModeUI() {
 
     override fun onDestroy() {
         super.onDestroy()
+        graphHopperModule?.release()
         if (::cameraModule.isInitialized) cameraModule.release()
         timerHandler.removeCallbacks(timerRunnable)
         offRouteHandler.removeCallbacks(offRouteRunnable)
@@ -902,6 +924,26 @@ private fun updateFollowModeUI() {
         AndroidGraphicFactory.clearResourceMemoryCache()
         milestoneHandler.removeCallbacksAndMessages(null)
     }
+    // ========== GraphHopper 경로 탐색 모듈 ==========
+
+    private fun initGraphHopper() {
+        android.util.Log.d("OppaNavi", "GH: initGraphHopper() called")
+        if (graphHopperModule != null) {
+            android.util.Log.d("OppaNavi", "GH: already initialized, skip")
+            return
+        }
+        android.util.Log.d("OppaNavi", "GH: creating GraphHopperModule and calling initialize()")
+        val module = GraphHopperModule(this)
+        module.onReady = {
+            android.util.Log.d("OppaNavi", "GH: GH_READY callback received")
+        }
+        module.onError = { msg ->
+            android.util.Log.e("OppaNavi", "GH: GH_INIT_ERROR -- $msg")
+        }
+        graphHopperModule = module
+        module.initialize()
+    }
+
     // ========== ON 블랙박스 모듈 — 제거 시 이 블록 삭제 ==========
 
     private fun initCameraModule() {
@@ -973,8 +1015,12 @@ private fun updateFollowModeUI() {
 
         cameraModule.onEventIgnored = { eventType ->
             android.util.Log.d("ON_Main", "이벤트 중복 무시: $eventType (ALREADY_SAVING)")
+        }
+
+        cameraModule.onEventSaveEnd = { ignoreCount ->
+            android.util.Log.d("ON_Main", "EVENT_SAVE_END ignoreCount=$ignoreCount")
             if (rideLogger.isActive) {
-                rideLogger.logEvent("${eventType.name}|EVENT_SAVE_IGNORE|ALREADY_SAVING", rideManager.getElapsedSec())
+                rideLogger.logEvent("EVENT_SAVE_END|IGNORE_COUNT:$ignoreCount", rideManager.getElapsedSec())
             }
         }
 
