@@ -1,0 +1,1 @@
+﻿timestamp,elapsed_sec,speed_kmh,accuracy_m,provider,nearest_index,dist_to_route_m,is_off_route,off_route_count,latitude,longitude,event_type,battery_temp,ram_mb,camera_state,frame_drop,segment_index,event_count,gps_satellites,buffer_size_kb

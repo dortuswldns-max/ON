@@ -1,0 +1,10 @@
+﻿timestamp,elapsed_sec,speed_kmh,accuracy_m,provider,nearest_index,dist_to_route_m,is_off_route,off_route_count,latitude,longitude,event_type,battery_temp,ram_mb,camera_state,frame_drop,segment_index,event_count,gps_satellites,buffer_size_kb
+14:57:14,11,1,6.0,gps,-1,-1.0,false,0,37.566272,126.838054,,39.1,5,RECORDING,0,0,0,-1,16764
+14:57:16,13,0,9.0,gps,-1,-1.0,false,0,37.566268,126.838069,,39.1,6,RECORDING,0,0,0,-1,18215
+14:57:17,14,0,10.0,gps,-1,-1.0,false,0,37.566269,126.838081,,39.1,7,RECORDING,0,0,0,-1,21163
+14:57:20,17,0,12.0,gps,-1,-1.0,false,0,37.566272,126.838114,,39.1,8,RECORDING,0,0,0,-1,24175
+14:57:27,24,0,10.7,gps,-1,-1.0,false,0,37.566278,126.838128,,39.7,10,RECORDING,0,1,0,-1,35217
+14:58:00,57,0,8.7,gps,-1,-1.0,false,0,37.566277,126.838118,,40.0,10,RECORDING,0,2,0,-1,82109
+14:58:30,87,0,6.7,gps,-1,-1.0,false,0,37.566274,126.838083,,40.0,8,RECORDING,0,1,0,-1,67474
+14:59:30,147,0,6.0,gps,-1,-1.0,false,0,37.566266,126.838055,,41.2,10,RECORDING,0,1,0,-1,67448
+15:00:27,204,0,6.7,gps,-1,-1.0,false,0,37.566270,126.838040,,41.2,8,READY,0,0,0,-1,0

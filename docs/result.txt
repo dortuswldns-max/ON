@@ -1,0 +1,104 @@
+날짜: 2026-06-18
+주제: Finalize 완료 전 back press → onDestroy 선행 호출 방지
+
+========================================
+위험 구간 분석
+========================================
+
+"주행 대기" 상태 = stopRide() 호출 후 ~ onRideFinishComplete 콜백 도착 전.
+
+타임라인:
+  1. 다이얼로그 "라이딩 종료" 선택 → stopRide()
+  2. cameraModule.onRideFinish() 호출 — isRiding=false, stopCurrentSegment()
+  3. [비동기 대기] VideoRecordEvent.Finalize 완료까지 1~수 초 소요
+  4. (위험 구간) 이 사이에 back press 2회 → finish() → onDestroy()
+        onDestroy() 내 cameraModule.release():
+          mainHandler.removeCallbacksAndMessages(null)  ← 콜백 취소
+          onRideFinishComplete = null                   ← 콜백 무효화
+        Finalize 완료돼도 onRideFinishComplete?.invoke() = no-op
+        → CAMERA_RELEASE / FINALIZE_DONE 미기록
+        → stopLogging() 미호출 → onDestroy() 안전망에만 의존
+  5. onRideFinishComplete 정상 도착 → finishRideUI() → 종료 UI 전환
+
+========================================
+수정 내용
+========================================
+
+파일: app/src/main/java/com/example/oppanavi/MainActivity.kt
+
+[1] isFinalizingRide 플래그 추가 (line ~833)
+
+  private var backPressedTime = 0L
+  + private var isFinalizingRide = false
+
+[2] back press 핸들러 — isFinalizingRide 중 차단 (init 블록)
+
+  수정 전:
+    override fun handleOnBackPressed() {
+        if (System.currentTimeMillis() - backPressedTime < 2000) {
+            finish()
+        } else { ... }
+    }
+
+  수정 후:
+    override fun handleOnBackPressed() {
+        if (isFinalizingRide) {
+            Toast.makeText(..., "영상 저장 중...", Toast.LENGTH_SHORT).show()
+            return                          ← finish() 호출 완전 차단
+        }
+        if (System.currentTimeMillis() - backPressedTime < 2000) {
+            finish()
+        } else { ... }
+    }
+
+[3] stopRide() — Finalize 구간 진입/해제 표시
+
+  수정 전:
+    if (::cameraModule.isInitialized) {
+        cameraModule.onRideFinishComplete = {
+            cameraModule.onRideFinishComplete = null
+            rideLogger.logEvent("CAMERA_RELEASE", ...)
+            finishRideUI()
+        }
+        cameraModule.onRideFinish()
+    }
+
+  수정 후:
+    if (::cameraModule.isInitialized) {
+        isFinalizingRide = true                   ← 위험 구간 진입
+        cameraModule.onRideFinishComplete = {
+            cameraModule.onRideFinishComplete = null
+            isFinalizingRide = false              ← 위험 구간 해제
+            rideLogger.logEvent("CAMERA_RELEASE", ...)
+            finishRideUI()
+        }
+        cameraModule.onRideFinish()
+    }
+
+========================================
+동작 결과
+========================================
+
+Finalize 대기 중 back press:
+  → "영상 저장 중..." 토스트 표시 후 return
+  → finish() / onDestroy() 호출 없음
+  → Finalize 완료 후 onRideFinishComplete 정상 실행
+  → CAMERA_RELEASE / FINALIZE_DONE 정상 기록
+  → finishRideUI() → 종료 UI 전환 정상 수행
+
+카메라 없는 경우 (else 브랜치):
+  → finishRideUI() 동기 호출이므로 isFinalizingRide 불필요
+  → 기존 동작 유지
+
+시스템 강제 종료 (메모리 회수 등):
+  → isFinalizingRide 플래그로는 막을 수 없음
+  → 기존 onDestroy() 안전망(stopLogging)으로 파일 보존
+  → 이 케이스는 별도 대응 불필요 (user-initiated back press가 주 위험)
+
+========================================
+관련 이전 수정 (참고)
+========================================
+
+CameraModule.kt: Finalize 에러 시 onRideFinishComplete 누락 버그 수정
+  → 에러 경로에서도 !isRiding 이면 onRideFinishComplete 호출하도록 추가
+  → 이번 수정과 함께 종료 시퀀스 안전성 확보

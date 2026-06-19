@@ -1,0 +1,47 @@
+GraphHopper PoC 착수 완료 결과
+작성일: 2026-06-18
+==============================================
+
+[빌드 결과]
+  BUILD SUCCESSFUL (에러 없음)
+
+[수정/생성 파일 목록]
+
+1. gradle/libs.versions.toml
+   - graphhopper = "0.13.0" 버전 추가
+
+2. app/build.gradle.kts
+   - graphhopper-core:0.13.0 의존성 추가 (slf4j-simple exclude)
+   - graphhopper-reader-osm:0.13.0 의존성 추가 (slf4j-simple exclude)
+   - slf4j-android:1.7.36 의존성 추가
+   - packaging { resources { excludes } } 블록 추가 (META-INF 충돌 방지)
+
+3. app/src/main/java/com/example/oppanavi/GraphHopperModule.kt  [신규]
+   - assets → 내부 저장소 PBF 복사 (최초 1회)
+   - 백그라운드 스레드 graph-cache 인덱싱
+   - onReady / onError 콜백
+   - route(from: LatLong, to: LatLong): List<LatLong> 탐색 함수
+
+4. app/src/main/java/com/example/oppanavi/MainActivity.kt
+   - graphHopperModule 필드 추가
+   - startRide() → initGraphHopper() 호출 추가
+   - onDestroy() → graphHopperModule?.release() 추가
+   - initGraphHopper() 함수 추가 (onReady 시 logcat "GH_READY" 출력)
+
+[빌드 중 발견된 API 수정 사항]
+  GraphHopper 0.13.0 실제 API 확인:
+  - setOSMFile()     → setDataReaderFile() 로 수정 (0.13.0 정식 메서드명)
+  - EncodingManager("bike") → EncodingManager.create("bike") 로 수정
+    (0.13.0에서 String 생성자 없음, 정적 팩토리 사용)
+
+[ON Core 분리 상태]
+  - CameraModule, RideManager 등 기존 모듈에 변경 없음
+  - GraphHopperModule은 startRide() 이후에만 초기화
+  - release()는 onDestroy()에서만 호출
+
+[다음 단계 (PoC 테스트 시)]
+  1. 첫 실행: PBF 복사 + graph-cache 생성 (수 분 소요, logcat GH_READY 대기)
+  2. 이후 실행: cache 재사용으로 빠른 초기화
+  3. route() 함수로 A→B 경로 탐색 확인
+  4. 탐색 결과 LatLong 리스트를 MapManager로 Polyline 표시 연동 가능
+==============================================

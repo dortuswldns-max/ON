@@ -1,0 +1,206 @@
+================================================================================
+RouteManager(GPX) 검증 모순 현상 원인 분석
+================================================================================
+작업 일시: 2026-06-19
+분석 대상 로그:
+  D  GPXRouteSource_DEBUG: points.size=1197, gpxEngine hash=106791796
+  W  GPX RouteManager: RouteResult null
+================================================================================
+
+## 1. 코드 흐름 추적
+
+### 1-1. 각 로그의 발생 위치
+
+  ① GPXRouteSource_DEBUG 로그
+     위치: GPXRouteSource.calculateRoute() 내부 (동기 실행)
+     의미: RouteManager가 PATH B(isReady=true) 분기로 진입하여
+           GPXRouteSource.calculateRoute()를 실제로 호출했음
+
+  ② GPX RouteManager: RouteResult null 로그
+     위치: MainActivity gpxLauncher 콜백 내 검증 lambda
+     의미: gpxRouteManager.calculateRoute()의 최종 콜백이
+           callback(null)로 실행됐음
+
+
+### 1-2. RouteManager.calculateRoute() 분기 구조
+
+  RouteManager.calculateRoute()는 두 경로로 완전히 분리된다:
+
+  PATH A (isReady=false):
+    state = ERROR
+    mainHandler.post { callback(null) }   ← W 로그의 출처
+    return                                ← 여기서 함수 종료
+    (GPXRouteSource.calculateRoute() 절대 호출 안 됨)
+
+  PATH B (isReady=true):
+    state = CALCULATING or RECALCULATING
+    routeSource.calculateRoute(...) { result ->
+        mainHandler.post { callback(result) }   ← D 로그가 나와야 할 위치
+    }
+    (GPXRouteSource.calculateRoute() 호출됨 → ① 로그 출처)
+
+  핵심: PATH A와 PATH B는 return으로 완전히 분리된다.
+        동일한 calculateRoute() 호출에서 두 경로가 모두 실행되는 것은
+        코드상 절대 불가능하다.
+
+
+### 1-3. 논리적 모순 확인
+
+  ① 로그 = PATH B가 실행됐다는 증거
+  ② 로그 = PATH A가 실행됐다는 증거
+
+  → 동일한 calculateRoute() 호출로 ①②가 모두 찍히는 것은 불가능하다.
+  → 따라서 두 로그는 반드시 서로 다른 두 번의 calculateRoute() 호출에서
+    나온 것이다.
+
+
+================================================================================
+
+## 2. 원인 — 두 번의 calculateRoute() 호출
+
+실제 실행 순서 재구성:
+
+  [호출 A] (isReady=true 상태)
+    → PATH B 진입
+    → GPXRouteSource.calculateRoute() 실행
+        → ① GPXRouteSource_DEBUG: points.size=1197  ← 즉시 찍힘 (동기)
+        → callback(RouteResult(1197개)) 동기 호출
+    → mainHandler.post { callback(RouteResult(1197개)) } 예약  ← Runnable_A
+
+  [호출 B] (isReady=false 상태)
+    → PATH A 진입
+    → mainHandler.post { callback(null) } 예약  ← Runnable_B
+    → return
+
+  메인 루프 실행:
+    → Runnable_B 실행: callback(null) → ② W 로그 찍힘
+    → Runnable_A 실행: callback(RouteResult(1197개)) → D 로그 찍힘
+         (오빠가 W 로그 확인 후 logcat을 닫았거나 스크롤해서 놓쳤을 가능성)
+
+  또는 Runnable_A가 Runnable_B보다 먼저 예약됐다면:
+    → Runnable_A: D 로그 (먼저 찍혔지만 주목 안 됨)
+    → Runnable_B: W 로그 (이것만 이상해 보여서 주목)
+
+
+================================================================================
+
+## 3. 호출 B에서 isReady=false가 되는 메커니즘
+
+호출 A와 호출 B 중 하나가 isReady=true, 하나가 isReady=false이어야 한다.
+
+isReady가 false인 경우는 다음 상황에서 발생한다:
+
+  (a) gpxRouteManager.initialize()의 mainHandler.post { isReady = true }가
+      아직 실행되지 않은 상태에서 calculateRoute()가 호출됐을 때
+
+  (b) 오류로 인해 onError 콜백이 실행되어 isReady = false로 설정됐을 때
+      → GPXRouteSource.prepare()는 항상 success=true를 반환하므로 해당 없음
+
+  따라서 (a)가 유력하다.
+
+  GPXRouteSource.prepare()는 동기적으로 callback(PrepareResult(success=true))를
+  호출한다. RouteManager.initialize()는 이를 받아 mainHandler.post { isReady = true }
+  를 예약한다. 이 post Runnable은 현재 실행 중인 메시지(onCreate) 처리가
+  완료된 후에야 실행된다.
+
+  즉, 이 Runnable이 실행되기 전에 calculateRoute()가 호출된다면 isReady=false.
+
+
+================================================================================
+
+## 4. 두 번의 호출이 발생하는 경로 후보
+
+현재 코드에서 gpxRouteManager.calculateRoute()를 명시적으로 호출하는 곳은
+gpxLauncher 콜백 한 곳뿐이다.
+
+그런데도 두 번 호출이 발생하는 경로 후보:
+
+  후보 1. gpxLauncher 콜백이 두 번 실행된 경우
+    - 안드로이드의 registerForActivityResult는 간혹 두 번 결과를 전달하는
+      경우가 있다 (특히 Configuration Change나 파일 선택 Activity 재실행 시)
+    - 실제로 GPX를 선택하는 과정에서 이런 이중 실행이 발생했을 수 있음
+
+  후보 2. gpxLauncher 이외 다른 곳에서 calculateRoute()를 호출하는 코드가
+           MainActivity.kt의 읽지 못한 부분에 존재하는 경우
+    - 현재 확인한 MainActivity.kt 범위(약 1000줄)에서는 발견하지 못했음
+
+  후보 3. gpxRouteManager.initialize()가 두 번 호출되어 타이밍 윈도우가
+           생긴 경우
+    - initialize()가 두 번 호출되면 state=LOADING으로 리셋되지만
+      isReady는 즉각 false가 되지 않는다 (RouteManager.initialize() 내에
+      isReady = false 명시적 reset이 없음)
+    - 따라서 이 경로로는 isReady=false가 만들어지지 않음
+
+  → 후보 1이 가장 유력하다.
+
+
+================================================================================
+
+## 5. "D 로그(RouteResult points=1197)가 왜 찍히지 않았나"에 대한 설명
+
+호출 A (PATH B)의 mainHandler.post Runnable은 실제로 callback(RouteResult(1197개))
+를 실행하므로 D 로그는 반드시 찍혔을 것이다.
+
+찍혔지만 보지 못한 이유 후보:
+  1. W 로그를 확인한 후 logcat을 닫았고, D 로그는 그 이후에 찍혔다
+  2. Runnable_B(null)가 Runnable_A(non-null)보다 먼저 실행됐고,
+     W 로그에 주목한 채로 D 로그가 바로 다음 줄에 찍혔지만 지나쳤다
+  3. D 로그가 찍혔지만 logcat 화면이 스크롤되어 보이지 않았다
+
+
+================================================================================
+
+## 6. gpxEngine.points에 대한 추가 확인 결과
+
+GpxEngine.kr.kt:
+  val points = mutableListOf<LatLong>()   ← val 선언, 항상 동일 인스턴스
+
+GpxManager.kt:
+  private val engine = GpxEngine(context) ← 한 번만 생성
+  val gpxEngine: GpxEngine get() = engine ← 동일 인스턴스 반환
+
+GPXRouteSource는 onCreate() 시점의 engine 인스턴스를 보관하며,
+GPX 로드 후에도 동일한 engine 객체의 points가 채워지므로
+참조 불일치 문제는 없다. DEBUG 로그에서 points.size=1197이 나온 것도
+이를 확인해준다.
+
+
+================================================================================
+
+## 7. 결론 요약
+
+근본 원인:
+  gpxRouteManager.calculateRoute()가 두 번 실행됐다.
+  한 번은 isReady=true (DEBUG 로그 발생),
+  한 번은 isReady=false (W 로그 발생).
+
+가장 유력한 트리거:
+  gpxLauncher 콜백이 두 번 실행됐거나,
+  또는 gpxLauncher 외 다른 경로에서 calculateRoute()가 한 번 더 호출됐다.
+
+설계상 주의할 점:
+  RouteManager.calculateRoute()의 isReady=false 경로(PATH A)가
+  GPXRouteSource.calculateRoute()를 호출하지 않고 바로 null을 반환하는
+  구조는 정상이다. 다만 외부에서 두 번 호출되는 상황을 막으려면
+  calculateRoute() 진입 시 중복 실행 방지 로직이 필요하다.
+
+
+================================================================================
+
+## 8. 원인 확인을 위한 추가 로그 제안 (코드 수정 금지이므로 참고만)
+
+RouteManager.calculateRoute() 진입부에 아래 로그를 추가하면
+두 번째 호출의 isReady 값과 호출 출처를 한 번에 파악할 수 있다:
+
+  android.util.Log.d("OppaNavi",
+      "calculateRoute: isReady=$isReady state=$state caller=${Throwable().stackTrace[1]}"
+  )
+
+================================================================================
+
+## 9. 빌드 / git 미수행 안내
+
+본 분석은 코드 읽기 전용으로 진행했습니다.
+빌드 및 git 명령어는 실행하지 않았습니다.
+
+================================================================================

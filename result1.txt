@@ -1,0 +1,127 @@
+================================================================================
+RouteManager 구조 도입 작업 결과
+================================================================================
+작업 일시: 2026-06-19
+================================================================================
+
+## 신규 생성 파일 (3개)
+
+1. app/src/main/java/com/example/oppanavi/RouteSource.kt
+   - RouteSource 인터페이스 (prepare / calculateRoute / release)
+   - PrepareResult, RouteResult data class 포함
+
+2. app/src/main/java/com/example/oppanavi/GraphHopperRouteSource.kt
+   - RouteSource 구현체
+   - GraphHopperModule을 래핑하여 onReady/onError 콜백 연결
+   - 경로 계산은 단일 스레드 Executor에서 실행 후 콜백 반환
+
+3. app/src/main/java/com/example/oppanavi/RouteManager.kt
+   - RouteState enum (IDLE / LOADING / CALCULATING / READY / RECALCULATING / ERROR)
+   - RouteSource를 주입받아 상태 관리
+   - initialize(), retryPrepare(), calculateRoute(), clearRoute(), release() 구현
+   - 모든 콜백은 mainHandler를 통해 메인 스레드로 전달
+
+================================================================================
+
+## 수정한 기존 파일 (2개)
+
+### MapManager.kt
+
+변경 1 — import 추가 (java.io.FileOutputStream 다음 줄):
+  + import org.mapsforge.core.graphics.Style
+  + import org.mapsforge.map.layer.overlay.Polyline
+
+변경 2 — 멤버 변수 추가 (private var locationMarker: Marker? = null 바로 다음):
+  + private var routeLayer: Polyline? = null
+
+변경 3 — drawRoute() / clearRouteLayer() 메서드 추가 (drawMyLocation() 직후):
+  + fun drawRoute(points: List<LatLong>)
+      · 기존 routeLayer 제거 후 2점 미만이면 null 처리
+      · AndroidGraphicFactory.INSTANCE.createPaint()로 #1565C0 색상 Polyline 생성
+      · mapView.layerManager.layers.add() 후 routeLayer에 보관
+  + fun clearRouteLayer()
+      · routeLayer 제거 후 null 처리
+
+--------------------------------------------------------------------------------
+
+### MainActivity.kt
+
+변경 1 — 멤버 변수 교체 (line 85-86 영역):
+  변경 전:
+    // GraphHopper 경로 탐색 모듈
+    private var graphHopperModule: GraphHopperModule? = null
+  변경 후:
+    // GraphHopper 경로 탐색 모듈 (RouteManager 통합)
+    private lateinit var routeManager: RouteManager
+
+변경 2 — onCreate() 내 Manager 초기화 블록 다음에 추가:
+  (gpxManager / rideManager / rideLogger 초기화 직후)
+  + val graphHopperModule = GraphHopperModule(this)        ← 로컬 변수
+  + val graphHopperRouteSource = GraphHopperRouteSource(graphHopperModule)
+  + routeManager = RouteManager(graphHopperRouteSource)
+
+변경 3 — initGraphHopper() 전체 교체:
+  변경 전: 직접 GraphHopperModule을 생성·초기화하고 멤버 변수에 저장
+  변경 후: routeManager.initialize() 를 통해 위임
+    · onReady → calculateAndDrawTestRoute() 호출 (지도에 Polyline 그리기)
+    · onError → Toast 표시
+
+변경 4 — calculateAndDrawTestRoute() 신규 추가 (initGraphHopper() 직후):
+  · 서울시청 → 광화문 테스트 경로 계산
+  · 결과 있으면 mapManager.drawRoute(result.points) 호출
+  · 결과 없으면 Toast 표시
+
+변경 5 — onDestroy() release 교체:
+  변경 전: graphHopperModule?.release()
+  변경 후: routeManager.release()
+  ✅ 정상 반영 확인
+
+================================================================================
+
+## 가이드 vs 실제 코드 일치 여부
+
+모든 old_string이 실제 파일 내용과 정확히 일치하여 임의 판단 없이 가이드대로
+적용하였습니다.
+
+※ 단 한 가지 실제 파일에만 존재하는 차이:
+  실제 initGraphHopper() 내부에 아래 주석이 있었음:
+    "// 테스트 route — 서울시청(37.5665,126.9780) → 광화문(37.5760,126.9769)"
+  가이드의 old_string에는 이 주석이 누락되어 있었으나, 실제 파일을 먼저
+  읽은 후 정확한 내용으로 old_string을 구성하여 문제없이 교체 완료.
+
+================================================================================
+
+## 주의사항 및 잠재적 이슈
+
+1. graphHopperModule 로컬 변수 참조:
+   onCreate()에서 생성된 graphHopperModule은 로컬 변수이며,
+   GraphHopperRouteSource 내부에 참조가 유지됩니다.
+   release()는 routeManager.release() → graphHopperRouteSource.release()
+   → graphHopperModule.release() 체인으로 정상 호출됩니다.
+
+2. routeManager lateinit 안전성:
+   routeManager는 onCreate()의 gpxManager/rideManager/rideLogger 초기화 직후
+   반드시 초기화됩니다. initGraphHopper()는 startRide() 버튼 클릭 시 호출되므로
+   always-initialized 보장됩니다.
+   단, onDestroy()에서 routeManager.release() 호출 시 Activity가 onCreate()
+   완료 전에 파괴되는 극단적 엣지케이스에서는 UninitializedPropertyAccessException
+   가능성이 있습니다 (기존 코드는 graphHopperModule?.release() 로 null-safe였음).
+   필요 시 ::routeManager.isInitialized 체크 추가를 고려하세요.
+
+3. Style import:
+   org.mapsforge.core.graphics.Style 이 mapsforge-core 0.17.0에 포함되어 있는지
+   확인 필요. mapsforge Paint의 setStyle()은 이 타입을 요구합니다.
+
+4. Polyline.getLatLongs() 반환 타입:
+   mapsforge 0.17.0의 Polyline.getLatLongs()가 MutableList<LatLong>을 반환하는지
+   확인 필요. addAll() 호출이 실패하면 list 직접 할당 방식으로 변경해야 합니다.
+
+================================================================================
+
+## 빌드 안내
+
+빌드는 진행하지 않았습니다.
+안드로이드 스튜디오에서 직접 Build → Make Project (Ctrl+F9) 또는
+Run 버튼을 눌러 빌드하세요.
+
+================================================================================
