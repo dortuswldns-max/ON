@@ -82,8 +82,13 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var mapManager: MapManager
     private lateinit var rideLogger: RideLogger
 
-    // GraphHopper 경로 탐색 모듈
-    private var graphHopperModule: GraphHopperModule? = null
+    // GraphHopper 경로 탐색 모듈 (RouteManager 통합)
+    // GraphHopper 경로 탐색 모듈 (RouteManager 통합)
+    private lateinit var routeManager: RouteManager
+
+    // [임시 검증 코드] GPX RouteManager — RouteManager가 GH/GPX를 동일하게 다루는지 검증용.
+    // 정식 서비스 구조 아님. 향후 RouteSourceSelector 도입 시 정리 대상.
+    private lateinit var gpxRouteManager: RouteManager
 
     // ON 블랙박스 모듈 — 제거 시 아래 블록 삭제
     private lateinit var cameraModule: CameraModule
@@ -418,11 +423,24 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         bindViews()
         tvSpeedComment = findViewById(R.id.tvSpeedComment)
         mapManager = MapManager(this, mapView)
-        mapManager.setupMap { updateFollowModeUI() }
+        mapManager.setupMap(
+            onTouchDisableFollow = { updateFollowModeUI() },
+            onLongPress = { latLong ->
+                handleMapLongPress(latLong)
+            }
+        )
         tvMilestone = findViewById(R.id.tvMilestone)
         gpxManager = GpxManager(this, mapView)
         rideManager = RideManager(this)
         rideLogger = RideLogger(this)
+        val graphHopperModule = GraphHopperModule(this)
+        val graphHopperRouteSource = GraphHopperRouteSource(graphHopperModule)
+        routeManager = RouteManager(graphHopperRouteSource)
+
+        // [임시 검증 코드] gpxManager는 이 시점 이전에 이미 생성되어 있어야 함
+        val gpxRouteSource = GPXRouteSource(gpxManager.gpxEngine)
+        gpxRouteManager = RouteManager(gpxRouteSource)
+        gpxRouteManager.initialize()  // GPX는 즉시 성공 — isReady = true로 전환
 
 // ON 블랙박스 초기화 — 제거 시 아래 블록 삭제
         initCameraModule()
@@ -651,6 +669,20 @@ private fun showMilestone(message: String) {
                     layoutGpxInfo.visibility = View.VISIBLE
                     btnClearGpx.visibility = View.VISIBLE
                     firstLocationButtonPress = true  // 현재위치 버튼 zoom 17 리셋
+
+                    // [임시 검증 코드] RouteManager가 GPX 경로도 동일하게 처리하는지 확인.
+                    // start/destination은 GPXRouteSource 내부에서 무시되므로 더미 값 사용.
+                    val dummy = LatLong(0.0, 0.0)
+                    gpxRouteManager.calculateRoute(dummy, dummy) { result ->
+                        if (result != null) {
+                            android.util.Log.d(
+                                "OppaNavi",
+                                "GPX RouteManager: RouteResult points=${result.points.size}"
+                            )
+                        } else {
+                            android.util.Log.w("OppaNavi", "GPX RouteManager: RouteResult null")
+                        }
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -909,7 +941,7 @@ private fun updateFollowModeUI() {
 
     override fun onDestroy() {
         super.onDestroy()
-        graphHopperModule?.release()
+        if (::routeManager.isInitialized) routeManager.release()
         if (::cameraModule.isInitialized) cameraModule.release()
         timerHandler.removeCallbacks(timerRunnable)
         offRouteHandler.removeCallbacks(offRouteRunnable)
@@ -927,21 +959,58 @@ private fun updateFollowModeUI() {
     // ========== GraphHopper 경로 탐색 모듈 ==========
 
     private fun initGraphHopper() {
-        android.util.Log.d("OppaNavi", "GH: initGraphHopper() called")
-        if (graphHopperModule != null) {
-            android.util.Log.d("OppaNavi", "GH: already initialized, skip")
+        android.util.Log.d("OppaNavi", "GH: initGraphHopper() called via RouteManager")
+        routeManager.initialize(
+            onReady = {
+                android.util.Log.d("OppaNavi", "GH: RouteManager READY")
+                // 테스트 route — 서울시청 → 광화문
+                calculateAndDrawTestRoute()
+            },
+            onError = { message ->
+                android.util.Log.e("OppaNavi", "GH: GH_INIT_ERROR -- $message")
+                Toast.makeText(
+                    this,
+                    "경로 엔진 초기화 실패: ${message ?: "알 수 없는 오류"}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        )
+    }
+
+    private fun calculateAndDrawTestRoute() {
+        val testFrom = LatLong(37.5665, 126.9780)
+        val testTo = LatLong(37.5760, 126.9769)
+
+        routeManager.calculateRoute(testFrom, testTo) { result ->
+            if (result != null) {
+                android.util.Log.d("OppaNavi", "GH: TEST route points=${result.points.size}")
+                mapManager.drawRoute(result.points)
+            } else {
+                Toast.makeText(this, "경로를 찾을 수 없습니다", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    private fun handleMapLongPress(destination: LatLong) {
+        val start = lastLatLong
+        if (start == null) {
+            Toast.makeText(this, "현재 위치를 아직 확인할 수 없습니다", Toast.LENGTH_SHORT).show()
             return
         }
-        android.util.Log.d("OppaNavi", "GH: creating GraphHopperModule and calling initialize()")
-        val module = GraphHopperModule(this)
-        module.onReady = {
-            android.util.Log.d("OppaNavi", "GH: GH_READY callback received")
+
+        if (!routeManager.isReady) {
+            Toast.makeText(this, "경로 엔진이 아직 준비되지 않았습니다", Toast.LENGTH_SHORT).show()
+            return
         }
-        module.onError = { msg ->
-            android.util.Log.e("OppaNavi", "GH: GH_INIT_ERROR -- $msg")
+
+        Toast.makeText(this, "목적지 설정! 경로 탐색 중...", Toast.LENGTH_SHORT).show()
+
+        routeManager.calculateRoute(start, destination) { result ->
+            if (result != null) {
+                mapManager.drawRoute(result.points)
+            } else {
+                Toast.makeText(this, "경로를 찾을 수 없습니다", Toast.LENGTH_SHORT).show()
+            }
         }
-        graphHopperModule = module
-        module.initialize()
     }
 
     // ========== ON 블랙박스 모듈 — 제거 시 이 블록 삭제 ==========

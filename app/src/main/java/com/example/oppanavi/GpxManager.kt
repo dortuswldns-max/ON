@@ -23,6 +23,9 @@ class GpxManager(
 
     val hasRoute get() = engine.points.isNotEmpty()
 
+    /** GPXRouteSource가 동일한 GpxEngine 상태를 참조하기 위한 read-only 접근. */
+    val gpxEngine: GpxEngine get() = engine
+
     // GPX 불러오기
     fun load(inputStream: InputStream): Boolean {
         val ok = engine.load(inputStream)

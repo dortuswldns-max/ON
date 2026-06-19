@@ -16,12 +16,15 @@ import org.mapsforge.map.reader.MapFile
 import org.mapsforge.map.rendertheme.StreamRenderTheme
 import java.io.File
 import java.io.FileOutputStream
+import org.mapsforge.core.graphics.Style
+import org.mapsforge.map.layer.overlay.Polyline
 
 class MapManager(
     private val context: Context,
     private val mapView: MapView
 ) {
     private var locationMarker: Marker? = null
+    private var routeLayer: Polyline? = null
     private var followMode = true
     private var snapCount = 0
     private var releaseCount = 0
@@ -31,21 +34,10 @@ class MapManager(
     private var isSnapped = false
     val isFollowMode get() = followMode
 
-    fun setupMap(onTouchDisableFollow: () -> Unit) {
+    fun setupMap(onTouchDisableFollow: () -> Unit, onLongPress: (LatLong) -> Unit) {
         mapView.isClickable = true
         mapView.mapScaleBar.isVisible = true
-
-        mapView.setOnTouchListener { _, event ->
-            if (followMode) {
-                // 핀치줌(두 손가락)은 추적 유지, 단순 터치만 추적 OFF
-                if (event.pointerCount == 1 &&
-                    event.action == android.view.MotionEvent.ACTION_DOWN) {
-                    followMode = false
-                    onTouchDisableFollow()
-                }
-            }
-            false
-        }
+        setupMapTouchListener(onTouchDisableFollow, onLongPress)
 
         val mapFile = copyMapFromAssets("south_korea.map")
         val tileCache = AndroidUtil.createTileCache(
@@ -118,6 +110,32 @@ class MapManager(
         val bitmap = AndroidGraphicFactory.convertToBitmap(drawable)
         locationMarker = Marker(displayPoint, bitmap, 0, 0)
         mapView.layerManager.layers.add(locationMarker!!)
+    }
+
+    fun drawRoute(points: List<LatLong>) {
+        routeLayer?.let { mapView.layerManager.layers.remove(it) }
+
+        if (points.size < 2) {
+            routeLayer = null
+            return
+        }
+
+        val paintStroke = AndroidGraphicFactory.INSTANCE.createPaint().apply {
+            setStyle(Style.STROKE)
+            setColor(android.graphics.Color.parseColor("#FF0000"))
+            setStrokeWidth(10f)
+        }
+
+        val polyline = Polyline(paintStroke, AndroidGraphicFactory.INSTANCE)
+        polyline.getLatLongs().addAll(points)
+
+        mapView.layerManager.layers.add(polyline)
+        routeLayer = polyline
+    }
+
+    fun clearRouteLayer() {
+        routeLayer?.let { mapView.layerManager.layers.remove(it) }
+        routeLayer = null
     }
 
     private fun createBicycleBitmap(bearing: Float): android.graphics.drawable.BitmapDrawable {
@@ -199,5 +217,56 @@ class MapManager(
             }
         }
         return outFile
+    }
+    // ============================================================
+    // 지도 Long Press → 목적지 선택
+    // ============================================================
+    private val longPressHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var longPressRunnable: Runnable? = null
+    private val LONG_PRESS_MS = 600L
+    private val LONG_PRESS_MOVE_THRESHOLD_PX = 20f
+    private var touchDownX = 0f
+    private var touchDownY = 0f
+
+    private fun setupMapTouchListener(
+        onTouchDisableFollow: () -> Unit,
+        onLongPress: (LatLong) -> Unit
+    ) {
+        mapView.setOnTouchListener { _, event ->
+            when (event.action) {
+                android.view.MotionEvent.ACTION_DOWN -> {
+                    if (event.pointerCount == 1) {
+                        if (followMode) {
+                            followMode = false
+                            onTouchDisableFollow()
+                        }
+                        touchDownX = event.x
+                        touchDownY = event.y
+                        val runnable = Runnable {
+                            val projection = org.mapsforge.map.util.MapViewProjection(mapView)
+                            val latLong = projection.fromPixels(touchDownX.toDouble(), touchDownY.toDouble())
+                            latLong?.let { onLongPress(it) }
+                        }
+                        longPressRunnable = runnable
+                        longPressHandler.postDelayed(runnable, LONG_PRESS_MS)
+                    }
+                    false
+                }
+                android.view.MotionEvent.ACTION_MOVE -> {
+                    val dx = kotlin.math.abs(event.x - touchDownX)
+                    val dy = kotlin.math.abs(event.y - touchDownY)
+                    if (dx > LONG_PRESS_MOVE_THRESHOLD_PX || dy > LONG_PRESS_MOVE_THRESHOLD_PX) {
+                        longPressRunnable?.let { longPressHandler.removeCallbacks(it) }
+                    }
+                    false
+                }
+                android.view.MotionEvent.ACTION_UP,
+                android.view.MotionEvent.ACTION_CANCEL -> {
+                    longPressRunnable?.let { longPressHandler.removeCallbacks(it) }
+                    false
+                }
+                else -> false
+            }
+        }
     }
 }
