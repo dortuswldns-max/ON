@@ -21,7 +21,8 @@ import org.mapsforge.map.layer.overlay.Polyline
 
 class MapManager(
     private val context: Context,
-    private val mapView: MapView
+    private val mapView: MapView,
+    private val debugLogger: DebugLogger
 ) {
     private var locationMarker: Marker? = null
     private var routeLayer: Polyline? = null
@@ -119,6 +120,7 @@ class MapManager(
             routeLayer = null
             return
         }
+        debugLogger.mapDrawRoute(points.size)
 
         val paintStroke = AndroidGraphicFactory.INSTANCE.createPaint().apply {
             setStyle(Style.STROKE)
@@ -134,6 +136,7 @@ class MapManager(
     }
 
     fun clearRouteLayer() {
+        debugLogger.mapClearRoute()
         routeLayer?.let { mapView.layerManager.layers.remove(it) }
         routeLayer = null
     }

@@ -81,6 +81,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private lateinit var appLocationManager: AppLocationManager
     private lateinit var mapManager: MapManager
     private lateinit var rideLogger: RideLogger
+    private lateinit var debugLogger: DebugLogger
 
     // GraphHopper 경로 탐색 모듈 (RouteManager 통합)
     // GraphHopper 경로 탐색 모듈 (RouteManager 통합)
@@ -123,7 +124,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private val SPEED_ZONE_THRESHOLD = 3 // 3회 연속 같은 구간이면 멘트 변경
     private var currentAccuracy = 0f
     private var currentProvider = "unknown"
-    private val navigationEngine = NavigationEngine()
+    private lateinit var navigationEngine: NavigationEngine
     private var lastSpeedCommentTime = 0L
     private val SPEED_COMMENT_INTERVAL_MS = 30000L  // 30초
     private var totalDistKmLastMilestone = 0.0
@@ -292,15 +293,6 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             mapManager.drawMyLocation(latLong, currentBearing)
         }
         if (mapManager.isFollowMode) mapView.setCenter(latLong)
-        navigationEngine.updateLocation(latLong)?.let { navState ->
-            android.util.Log.d(
-                "OppaNavi",
-                "NAV: distance=%.1fm remaining=%.0fm progress=%.0f%% offRouteCount=%d isOffRoute=%b".format(
-                    navState.distanceToRoute, navState.remainingDistance, navState.progressPercent,
-                    navState.offRouteCount, navState.isOffRoute
-                )
-            )
-        }
         currentSpeedKmh = if (location.hasSpeed()) {
             (location.speed * 3.6f).roundToInt()
         } else 0
@@ -372,14 +364,20 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         }
 
         // GPX 진행 업데이트 — 경로 없을 때는 기본값 사용
+        // Active Route 정책: GPX 로드 상태면 GPX가 활성, 없으면 NavigationEngine(GH)이 활성.
+        // 둘 다 계산하지 않는다 — 활성 경로만 진행률/남은거리/UI를 갱신한다.
+        // (향후 RouteManager의 ActiveRoute 정책으로 이동 예정)
         var gpxNearestIdx = -1
         var gpxDistToRoute = -1.0
         var gpxIsOffRoute = false
+
         if (gpxManager.hasRoute) {
+            // ---- 활성 경로: GPX ----
             val info = gpxManager.updateProgress(latLong)
             gpxNearestIdx = info.nearestIdx
             gpxDistToRoute = info.distToRoute
             gpxIsOffRoute = info.isOffRoute
+            layoutGpxInfo.visibility = View.VISIBLE
             tvGpxProgress.text = "${info.progressPct}%"
             tvGpxRemain.text = "남은 ${info.remainKm}km"
 
@@ -395,6 +393,33 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
                     offRouteHandler.removeCallbacks(offRouteRunnable)
                     tvOffRoute.text = "⚠ 경로를 벗어났습니다!"
                 }
+                tvOffRoute.visibility = View.GONE
+            }
+        } else {
+            // ---- 활성 경로: NavigationEngine (GraphHopper) ----
+            val navState = navigationEngine.updateLocation(latLong)
+            if (navState != null) {
+                layoutGpxInfo.visibility = View.VISIBLE
+                val remainKm = navState.remainingDistance / 1000.0
+                tvGpxProgress.text = "${navState.progressPercent.toInt()}%"
+                tvGpxRemain.text = "남은 %.1fkm".format(remainKm)
+
+                if (navState.isOffRoute) {
+                    if (offRouteStartTime == 0L) {
+                        offRouteStartTime = System.currentTimeMillis()
+                        offRouteHandler.post(offRouteRunnable)
+                    }
+                    tvOffRoute.visibility = View.VISIBLE
+                } else {
+                    if (offRouteStartTime > 0L) {
+                        offRouteStartTime = 0L
+                        offRouteHandler.removeCallbacks(offRouteRunnable)
+                        tvOffRoute.text = "⚠ 경로를 벗어났습니다!"
+                    }
+                    tvOffRoute.visibility = View.GONE
+                }
+            } else {
+                layoutGpxInfo.visibility = View.GONE
                 tvOffRoute.visibility = View.GONE
             }
         }
@@ -421,6 +446,8 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        debugLogger = DebugLogger(this)
+        debugLogger.start()
         AndroidGraphicFactory.createInstance(application)
         setContentView(R.layout.activity_main)
 
@@ -428,9 +455,10 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
 
         sensorManager = getSystemService(SENSOR_SERVICE) as SensorManager
 
+        navigationEngine = NavigationEngine(debugLogger)
         bindViews()
         tvSpeedComment = findViewById(R.id.tvSpeedComment)
-        mapManager = MapManager(this, mapView)
+        mapManager = MapManager(this, mapView, debugLogger)
         mapManager.setupMap(
             onTouchDisableFollow = { updateFollowModeUI() },
             onLongPress = { latLong ->
@@ -442,12 +470,12 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         rideManager = RideManager(this)
         rideLogger = RideLogger(this)
         val graphHopperModule = GraphHopperModule(this)
-        val graphHopperRouteSource = GraphHopperRouteSource(graphHopperModule)
-        routeManager = RouteManager(graphHopperRouteSource)
+        val graphHopperRouteSource = GraphHopperRouteSource(graphHopperModule, debugLogger)
+        routeManager = RouteManager(graphHopperRouteSource, debugLogger)
 
         // [임시 검증 코드] gpxManager는 이 시점 이전에 이미 생성되어 있어야 함
         val gpxRouteSource = GPXRouteSource(gpxManager.gpxEngine)
-        gpxRouteManager = RouteManager(gpxRouteSource)
+        gpxRouteManager = RouteManager(gpxRouteSource, debugLogger)
         gpxRouteManager.initialize()  // GPX는 즉시 성공 — isReady = true로 전환
 
 // ON 블랙박스 초기화 — 제거 시 아래 블록 삭제
@@ -667,6 +695,7 @@ private fun showMilestone(message: String) {
         uri ?: return@registerForActivityResult
         try {
             contentResolver.openInputStream(uri)?.let { stream ->
+                mapManager.clearRouteLayer()
                 val ok = gpxManager.load(stream)
                 if (ok) {
                     Toast.makeText(
@@ -772,26 +801,27 @@ private fun showMilestone(message: String) {
         mapView.layerManager.layers.add(locationMarker!!)
     }
 
-override fun onResume() {
-    super.onResume()
-    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-    sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
-        sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+    override fun onResume() {
+        super.onResume()
+        debugLogger.appResume()
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)?.let {
+            sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI)
+        }
+        if (androidx.core.app.ActivityCompat.checkSelfPermission(
+                this, android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            appLocationManager.startUpdates()
+        }
+        if (::cameraModule.isInitialized) cameraModule.onAppResume()
     }
-    if (androidx.core.app.ActivityCompat.checkSelfPermission(
-            this, android.Manifest.permission.ACCESS_FINE_LOCATION
-        ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-    ) {
-        appLocationManager.startUpdates()
+    override fun onPause() {
+        super.onPause()
+        debugLogger.appPause()
+        sensorManager.unregisterListener(this)
+        appLocationManager.stopUpdates()
     }
-    if (::cameraModule.isInitialized) cameraModule.onAppResume()
-}
-
-override fun onPause() {
-    super.onPause()
-    sensorManager.unregisterListener(this)
-    appLocationManager.stopUpdates()
-}
 
     override fun onSensorChanged(event: SensorEvent) {
         if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
@@ -949,6 +979,7 @@ private fun updateFollowModeUI() {
 
     override fun onDestroy() {
         super.onDestroy()
+        debugLogger.stop()
         if (::routeManager.isInitialized) routeManager.release()
         if (::cameraModule.isInitialized) cameraModule.release()
         timerHandler.removeCallbacks(timerRunnable)
