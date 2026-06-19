@@ -9,51 +9,110 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- 상단 정보 패널 -->
+    <!-- ============================================================
+         상단 NavigationInfo 영역 (가로 전체)
+         좌: 속도계(영역1) | 우: GPS강도+추적상태(영역3/4, 좌우 동일폭)
+         그 아래: 주행정보 가로 전체(영역2)
+         ============================================================ -->
     <LinearLayout
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="top|center_horizontal"
+        android:layout_gravity="top"
         android:layout_marginTop="8dp"
+        android:layout_marginHorizontal="8dp"
         android:background="#44000000"
-        android:paddingHorizontal="20dp"
-        android:paddingVertical="6dp"
-        android:orientation="vertical"
-        android:gravity="center_horizontal">
+        android:paddingHorizontal="16dp"
+        android:paddingVertical="8dp"
+        android:orientation="vertical">
 
-        <!-- 속도 -->
+        <!-- 영역4(빈 방, 추후 배치) + 영역1(속도) + 영역3(GPS강도, 추적상태) 가로 배치 -->
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center_vertical">
 
-            <TextView
-                android:id="@+id/tvSpeed"
-                android:layout_width="wrap_content"
+            <!-- 영역4: 추후 사용 예정 (현재 빈 공간) -->
+            <LinearLayout
+                android:id="@+id/layoutReserved"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="0"
-                android:textColor="#FFFFFF"
-                android:textSize="48sp"
-                android:textStyle="bold"/>
+                android:layout_weight="2"
+                android:orientation="vertical"
+                android:gravity="center" />
 
-            <TextView
-                android:layout_width="wrap_content"
+            <!-- 영역1: 속도계 (중앙, 가장 크게) -->
+            <LinearLayout
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text=" km/h"
-                android:textColor="#CCCCCC"
-                android:textSize="16sp"
-                android:layout_marginStart="4dp"/>
+                android:layout_weight="6"
+                android:orientation="horizontal"
+                android:gravity="center">
+
+                <TextView
+                    android:id="@+id/tvSpeed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0"
+                    android:textColor="#FFFFFF"
+                    android:textSize="53sp"
+                    android:textStyle="bold"/>
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=" km/h"
+                    android:textColor="#CCCCCC"
+                    android:textSize="16sp"
+                    android:layout_marginStart="4dp"/>
+
+            </LinearLayout>
+
+            <!-- 영역3: GPS강도 + 추적상태 -->
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="2"
+                android:orientation="vertical"
+                android:gravity="end">
+
+                <TextView
+                    android:id="@+id/tvGpsStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="GPS ○"
+                    android:textColor="#AAAAAA"
+                    android:textSize="12sp"/>
+
+                <TextView
+                    android:id="@+id/tvFollowMode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="추적 ON"
+                    android:textColor="#E53935"
+                    android:textSize="12sp"
+                    android:layout_marginTop="2dp"/>
+
+                <TextView
+                    android:id="@+id/tvPauseStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textColor="#FF9800"
+                    android:textSize="12sp"
+                    android:layout_marginTop="2dp"/>
+
+            </LinearLayout>
 
         </LinearLayout>
 
-        <!-- 주행거리 | 주행시간 | 평균속도 -->
+        <!-- 영역2: 주행정보 (가로 전체) — 거리|시간|평균속도 (+경로 있으면 남은거리|진행율) -->
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center"
-            android:layout_marginTop="2dp">
+            android:layout_marginTop="4dp">
 
             <TextView
                 android:id="@+id/tvTotalDist"
@@ -61,7 +120,8 @@
                 android:layout_height="wrap_content"
                 android:text="0.0km"
                 android:textColor="#FFFFFF"
-                android:textSize="21sp"
+                android:textSize="25sp"
+                android:textStyle="bold"
                 android:paddingHorizontal="6dp"/>
 
             <TextView
@@ -69,7 +129,7 @@
                 android:layout_height="wrap_content"
                 android:text="|"
                 android:textColor="#666666"
-                android:textSize="21sp"/>
+                android:textSize="25sp"/>
 
             <TextView
                 android:id="@+id/tvRideTime"
@@ -77,7 +137,8 @@
                 android:layout_height="wrap_content"
                 android:text="00:00"
                 android:textColor="#FFFFFF"
-                android:textSize="21sp"
+                android:textSize="25sp"
+                android:textStyle="bold"
                 android:paddingHorizontal="6dp"/>
 
             <TextView
@@ -85,7 +146,7 @@
                 android:layout_height="wrap_content"
                 android:text="|"
                 android:textColor="#666666"
-                android:textSize="13sp"/>
+                android:textSize="25sp"/>
 
             <TextView
                 android:id="@+id/tvAvgSpeed"
@@ -93,15 +154,16 @@
                 android:layout_height="wrap_content"
                 android:text="0.0avg"
                 android:textColor="#FFFFFF"
-                android:textSize="13sp"
+                android:textSize="25sp"
+                android:textStyle="bold"
                 android:paddingHorizontal="6dp"/>
 
         </LinearLayout>
 
-        <!-- GPX 진행 정보 -->
+        <!-- 영역2 확장: 경로 진행 정보 (GPX 우선, 없으면 GraphHopper/NavigationEngine) -->
         <LinearLayout
             android:id="@+id/layoutGpxInfo"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
             android:gravity="center"
@@ -109,29 +171,38 @@
             android:visibility="gone">
 
             <TextView
-                android:id="@+id/tvGpxProgress"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="0%"
-                android:textColor="#FFD600"
-                android:textSize="16sp"
-                android:paddingHorizontal="4dp"/>
-
-            <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="|"
                 android:textColor="#666666"
-                android:textSize="12sp"/>
+                android:textSize="25sp"/>
 
             <TextView
                 android:id="@+id/tvGpxRemain"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="남은 0.0km"
-                android:textColor="#FFD600"
-                android:textSize="16sp"
-                android:paddingHorizontal="4dp"/>
+                android:textColor="#FFFFFF"
+                android:textSize="25sp"
+                android:textStyle="bold"
+                android:paddingHorizontal="6dp"/>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="|"
+                android:textColor="#666666"
+                android:textSize="25sp"/>
+
+            <TextView
+                android:id="@+id/tvGpxProgress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0%"
+                android:textColor="#FFFFFF"
+                android:textSize="25sp"
+                android:textStyle="bold"
+                android:paddingHorizontal="6dp"/>
 
         </LinearLayout>
 
@@ -143,56 +214,17 @@
             android:textColor="#FFD600"
             android:textSize="17sp"
             android:gravity="center_horizontal"
-            android:layout_marginTop="2dp"/>
+            android:layout_marginTop="2dp"
+            android:layout_gravity="center_horizontal"/>
     </LinearLayout>
 
-    <!-- 우상단 GPS/추적 상태 -->
-    <LinearLayout
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="top|end"
-        android:layout_margin="8dp"
-        android:background="#44000000"
-        android:paddingHorizontal="10dp"
-        android:paddingVertical="6dp"
-        android:orientation="vertical"
-        android:gravity="end">
-
-        <TextView
-            android:id="@+id/tvGpsStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="GPS ○"
-            android:textColor="#AAAAAA"
-            android:textSize="12sp"/>
-
-        <TextView
-            android:id="@+id/tvFollowMode"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="추적 ON"
-            android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:layout_marginTop="2dp"/>
-
-        <TextView
-            android:id="@+id/tvPauseStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text=""
-            android:textColor="#FF9800"
-            android:textSize="12sp"
-            android:layout_marginTop="2dp"/>
-
-    </LinearLayout>
-
-    <!-- 경로 이탈 경고 -->
+    <!-- 경로 이탈 경고 — 새 NavigationInfo 영역과 안 겹치게 마진 확대 -->
     <TextView
         android:id="@+id/tvOffRoute"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="160dp"
+        android:layout_marginTop="210dp"
         android:background="#CCFF0000"
         android:text="⚠ 경로를 벗어났습니다!"
         android:textColor="#FFFFFF"
@@ -206,7 +238,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="220dp"
+        android:layout_marginTop="270dp"
         android:background="#CC1565C0"
         android:text=""
         android:textColor="#FFFFFF"
@@ -226,8 +258,8 @@
         android:visibility="visible">
 
         <ImageView
-            android:layout_width="381dp"
-            android:layout_height="187dp"
+            android:layout_width="387dp"
+            android:layout_height="205dp"
             android:layout_marginBottom="10dp"
             android:background="@android:color/transparent"
             android:scaleType="fitCenter"

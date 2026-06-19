@@ -123,7 +123,7 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
     private val SPEED_ZONE_THRESHOLD = 3 // 3회 연속 같은 구간이면 멘트 변경
     private var currentAccuracy = 0f
     private var currentProvider = "unknown"
-
+    private val navigationEngine = NavigationEngine()
     private var lastSpeedCommentTime = 0L
     private val SPEED_COMMENT_INTERVAL_MS = 30000L  // 30초
     private var totalDistKmLastMilestone = 0.0
@@ -292,7 +292,14 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
             mapManager.drawMyLocation(latLong, currentBearing)
         }
         if (mapManager.isFollowMode) mapView.setCenter(latLong)
-
+        navigationEngine.updateLocation(latLong)?.let { navState ->
+            android.util.Log.d(
+                "OppaNavi",
+                "NAV: nearestIndex=${navState.nearestIndex} distanceToRoute=%.1fm remaining=%.0fm progress=%.0f%%".format(
+                    navState.distanceToRoute, navState.remainingDistance, navState.progressPercent
+                )
+            )
+        }
         currentSpeedKmh = if (location.hasSpeed()) {
             (location.speed * 3.6f).roundToInt()
         } else 0
@@ -1007,6 +1014,18 @@ private fun updateFollowModeUI() {
         routeManager.calculateRoute(start, destination) { result ->
             if (result != null) {
                 mapManager.drawRoute(result.points)
+                android.util.Log.d(
+                    "OppaNavi",
+                    "ROUTE: distance=${result.distanceMeters}m time=${result.estimatedTimeSec}sec"
+                )
+                navigationEngine.setRoute(result)
+                val distanceKm = (result.distanceMeters ?: 0.0) / 1000.0
+                val timeMin = (result.estimatedTimeSec ?: 0L) / 60
+                Toast.makeText(
+                    this,
+                    "거리: %.1fkm / 예상: %d분".format(distanceKm, timeMin),
+                    Toast.LENGTH_LONG
+                ).show()
             } else {
                 Toast.makeText(this, "경로를 찾을 수 없습니다", Toast.LENGTH_SHORT).show()
             }
