@@ -295,8 +295,9 @@ class MainActivity : AppCompatActivity(), SensorEventListener {
         navigationEngine.updateLocation(latLong)?.let { navState ->
             android.util.Log.d(
                 "OppaNavi",
-                "NAV: nearestIndex=${navState.nearestIndex} distanceToRoute=%.1fm remaining=%.0fm progress=%.0f%%".format(
-                    navState.distanceToRoute, navState.remainingDistance, navState.progressPercent
+                "NAV: distance=%.1fm remaining=%.0fm progress=%.0f%% offRouteCount=%d isOffRoute=%b".format(
+                    navState.distanceToRoute, navState.remainingDistance, navState.progressPercent,
+                    navState.offRouteCount, navState.isOffRoute
                 )
             )
         }

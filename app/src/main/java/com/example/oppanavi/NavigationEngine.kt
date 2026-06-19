@@ -51,7 +51,9 @@ data class NavigationState(
     val nearestIndex: Int,
     val distanceToRoute: Double,
     val progressPercent: Double,
-    val remainingDistance: Double
+    val remainingDistance: Double,
+    val isOffRoute: Boolean,
+    val offRouteCount: Int
 )
 
 class NavigationEngine {
@@ -66,7 +68,9 @@ class NavigationEngine {
     // route point 간 segment 거리의 누적합. setRoute() 시점에 미리 계산해서
     // remainingDistance 계산 시 매번 다시 더하지 않도록 한다.
     private var cumulativeDistances: List<Double> = emptyList()
-
+    private var offRouteCount = 0
+    private val OFF_ROUTE_DISTANCE_METERS = 30.0
+    private val OFF_ROUTE_COUNT_THRESHOLD = 3
     /**
      * 새 경로를 설정한다. RouteManager가 RouteResult를 넘기는 시점에
      * MainActivity가 이 함수를 호출한다 (MapManager.drawRoute()와 같은 자리).
@@ -75,6 +79,7 @@ class NavigationEngine {
         currentRoute = route
         nearestIndex = 0
         cumulativeDistances = buildCumulativeDistances(route.points)
+        offRouteCount = 0  // 새 경로 시작 시 반드시 리셋
     }
 
     /**
@@ -100,7 +105,12 @@ class NavigationEngine {
             }
         }
         nearestIndex = nearestIdx
-
+        if (minDist > OFF_ROUTE_DISTANCE_METERS) {
+            offRouteCount++
+        } else {
+            offRouteCount = 0
+        }
+        val isOffRoute = offRouteCount >= OFF_ROUTE_COUNT_THRESHOLD
         val remaining = remainingDistanceFrom(nearestIdx)
         val totalDistance = cumulativeDistances.lastOrNull() ?: 0.0
         val progressPercent = if (totalDistance > 0) {
@@ -114,8 +124,10 @@ class NavigationEngine {
             nearestRoutePoint = points[nearestIdx],
             nearestIndex = nearestIdx,
             distanceToRoute = minDist,
+            remainingDistance = remaining,
             progressPercent = progressPercent,
-            remainingDistance = remaining
+            isOffRoute = isOffRoute,
+            offRouteCount = offRouteCount
         )
     }
 
@@ -123,6 +135,7 @@ class NavigationEngine {
     fun clearRoute() {
         currentRoute = null
         nearestIndex = 0
+        offRouteCount = 0
         cumulativeDistances = emptyList()
     }
 
