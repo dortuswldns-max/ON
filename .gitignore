@@ -13,3 +13,5 @@
 .externalNativeBuild
 .cxx
 local.properties
+app/src/main/assets/south_korea.map
+app/src/main/assets/south-korea-260616.osm.pbf
